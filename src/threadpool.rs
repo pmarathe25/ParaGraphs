@@ -3,34 +3,86 @@ use std::sync::{mpsc, Arc, Mutex};
 
 #[cfg(test)]
 mod tests {
-    use super::ThreadPool;
+    use super::{ThreadPool, Execute};
+    use std::thread;
+    use std::time;
+
+    // Adds two numbers together and stores in sum.
+    struct Adder {
+        lhs: i32,
+        rhs: i32,
+        sum: i32,
+    }
+
+    impl Adder {
+        fn new(lhs: i32, rhs: i32) -> Adder {
+            return Adder{lhs: lhs, rhs: rhs, sum: 0};
+        }
+    }
+
+    impl Execute<i32> for Adder {
+        fn execute(&mut self) {
+            self.sum = self.lhs + self.rhs;
+        }
+
+        fn result(&self) -> i32 {
+            return self.sum;
+        }
+    }
+
     #[test]
     fn can_construct_threadpool() {
+        let pool = ThreadPool::<u32>::new(8);
+    }
+
+    #[test]
+    fn can_launch_jobs() {
+        // Launch some arbitrary job, like waiting.
         let pool = ThreadPool::new(8);
+        for i in 0..8 {
+            let waiter = Box::new(Adder::new(i, 1));
+            pool.execute(waiter, i as usize);
+        }
+    }
+
+    #[test]
+    fn can_move_jobs_to_pool() {
+        // Try to create a vector of executables, and then Send them to the pool.
+        // We need to use Option here so we can safely move them back and forth.
+        let num_waiters = 8;
+        let mut waiters: Vec<Option<Box<Adder>>> = std::iter::repeat_with(|| return Some(Box::new(Adder::new(1, 5)))).take(num_waiters).collect();
+
+        let pool = ThreadPool::new(8);
+        for (index, waiter) in waiters.iter_mut().enumerate() {
+            pool.execute(waiter.take().unwrap(), index);
+        }
+        assert_eq!(waiters.len(), num_waiters);
     }
 }
 
 // Any job to be executed by this ThreadPool must be Execute.
-pub trait Execute {
+pub trait Execute<Edge> {
     fn execute(&mut self);
+
+    fn result(&self) -> Edge;
 }
 
 // Any type which is Execute and Send can be dispatched via the ThreadPool.
-pub type Executable = Box<Execute + Send>;
+pub type Executable<Edge> = Box<dyn Execute<Edge> + Send>;
 
 // Messages are sent from the ThreadPool to each worker.
 // Each message can either be a new job, which includes an executable and unique identifier,
 // or the Terminate signal, which signals the Worker to stop listening for new jobs.
-enum Message {
-    Job(Executable, usize),
+enum Message<Edge> {
+    Job(Executable<Edge>, usize),
     Terminate,
 }
 
 // WorkerStatus is used by each thread to report when it is finished.
 // As part of this message, the worker also sends back the Executable and the job ID.
 // The executable may or may not be stateful.
-pub enum WorkerStatus {
-    Complete(Executable, usize),
+pub enum WorkerStatus<Edge> {
+    Complete(Executable<Edge>, usize),
 }
 
 // Worker manages a single thread. It can receive jobs via the associated mpsc::Receiver.
@@ -42,7 +94,7 @@ struct Worker {
 
 impl Worker {
     // Creates a new worker with the given ID. Also sets up a receiver to listen for jobs.
-    fn new(id: usize, exec_receiver: Arc<Mutex<mpsc::Receiver<Message>>>, sender: mpsc::Sender<WorkerStatus>) -> Worker {
+    fn new<Edge: 'static>(id: usize, exec_receiver: Arc<Mutex<mpsc::Receiver<Message<Edge>>>>, sender: mpsc::Sender<WorkerStatus<Edge>>) -> Worker {
         let thread = thread::spawn(move || {
             loop {
                 // Listen for jobs. This blocks and is NOT a busy wait.
@@ -72,35 +124,35 @@ impl Worker {
 // The ThreadPool tracks a group of workers. When a new Executable is received, it is moved into
 // a worker where it is executed. Afterwards, it can be moved back by listening on
 // the wstatus_receiver.
-pub struct ThreadPool {
+pub struct ThreadPool<Edge> {
     workers: Vec<Worker>,
-    exec_sender: mpsc::Sender<Message>,
-    pub wstatus_receiver: mpsc::Receiver<WorkerStatus>,
+    exec_sender: mpsc::Sender<Message<Edge>>,
+    pub wstatus_receiver: mpsc::Receiver<WorkerStatus<Edge>>,
 }
 
-impl ThreadPool {
-    pub fn new(size: usize) -> ThreadPool {
-        assert!(size > 0);
+impl<Edge: 'static> ThreadPool<Edge> {
+    pub fn new(num_workers: usize) -> ThreadPool<Edge> {
+        assert!(num_workers > 0);
         let (exec_sender, exec_receiver) = mpsc::channel();
         let exec_receiver = Arc::new(Mutex::new(exec_receiver));
 
         let (wstatus_sender, wstatus_receiver) = mpsc::channel();
 
-        let mut workers = Vec::with_capacity(size);
-        for id in 0..size {
+        let mut workers = Vec::with_capacity(num_workers);
+        for id in 0..num_workers {
             workers.push(Worker::new(id, Arc::clone(&exec_receiver), wstatus_sender.clone()));
         }
 
         return ThreadPool{workers: workers, exec_sender: exec_sender, wstatus_receiver: wstatus_receiver};
     }
 
-    pub fn execute(&self, exec: Executable, id: usize) {
+    pub fn execute(&self, exec: Executable<Edge>, id: usize) {
         self.exec_sender.send(Message::Job(exec, id)).unwrap();
     }
 }
 
 // Implements graceful shutdown and clean up for the ThreadPool.
-impl Drop for ThreadPool {
+impl<Edge> Drop for ThreadPool<Edge> {
     fn drop(&mut self) {
         for _ in &self.workers {
             self.exec_sender.send(Message::Terminate).unwrap();
