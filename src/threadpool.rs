@@ -3,7 +3,7 @@ use std::sync::{mpsc, Arc, Mutex};
 
 #[cfg(test)]
 mod tests {
-    use super::{ThreadPool, Execute};
+    use super::{ThreadPool, Execute, Executable, WorkerStatus};
     use std::thread;
     use std::time;
 
@@ -40,8 +40,8 @@ mod tests {
         // Launch some arbitrary job, like waiting.
         let pool = ThreadPool::new(8);
         for i in 0..8 {
-            let waiter = Box::new(Adder::new(i, 1));
-            pool.execute(waiter, i as usize);
+            let adder = Box::new(Adder::new(i, 1));
+            pool.execute(adder, i as usize);
         }
     }
 
@@ -49,14 +49,53 @@ mod tests {
     fn can_move_jobs_to_pool() {
         // Try to create a vector of executables, and then Send them to the pool.
         // We need to use Option here so we can safely move them back and forth.
-        let num_waiters = 8;
-        let mut waiters: Vec<Option<Box<Adder>>> = std::iter::repeat_with(|| return Some(Box::new(Adder::new(1, 5)))).take(num_waiters).collect();
+        let num_adders = 8;
+        let mut adders: Vec<Option<Box<Adder>>> = std::iter::repeat_with(|| return Some(Box::new(Adder::new(1, 5)))).take(num_adders).collect();
 
         let pool = ThreadPool::new(8);
-        for (index, waiter) in waiters.iter_mut().enumerate() {
-            pool.execute(waiter.take().unwrap(), index);
+        for (index, adder) in adders.iter_mut().enumerate() {
+            pool.execute(adder.take().unwrap(), index);
         }
-        assert_eq!(waiters.len(), num_waiters);
+        assert_eq!(adders.len(), num_adders);
+    }
+
+    #[test]
+    fn can_retrieve_jobs_from_pool() {
+        // Try to create a vector of executables, and then Send them to the pool.
+        // We need to use Option here so we can safely move them back and forth.
+        let num_adders = 8;
+        let mut adders: Vec<Option<Executable<_>>> = Vec::with_capacity(num_adders);
+        for i in 0..num_adders {
+            let incrementer = Box::new(Adder::new(1, i as i32));
+            adders.push(Some(incrementer));
+        }
+        // Create a pool and puh all the adders.
+        let pool = ThreadPool::new(8);
+        for (index, adder) in adders.iter_mut().enumerate() {
+            pool.execute(adder.take().unwrap(), index);
+        }
+        assert_eq!(adders.len(), num_adders);
+        // Next, try to retrieve the jobs. We know that there are exactly num_adders jobs.
+        let mut num_running_jobs = num_adders.clone();
+        while num_running_jobs > 0 {
+            if let Ok(wstatus) = pool.wstatus_receiver.recv() {
+                match wstatus {
+                    WorkerStatus::Complete(adder, id) => {
+                        // Populate the Option in the adders vector.
+                        if let Some(opt) = adders.get_mut(id) {
+                            opt.replace(adder);
+                        }
+                        println!("Replacing {}", id);
+                        num_running_jobs -= 1;
+                    },
+                };
+            };
+        }
+        for (index, adder) in adders.into_iter().enumerate() {
+            println!("Checking adder {}", index);
+            assert_eq!(adder.unwrap().result(), 1 + index as i32);
+            println!("Adder {} passed", index);
+        }
     }
 }
 
