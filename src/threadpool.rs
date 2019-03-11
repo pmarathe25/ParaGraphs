@@ -1,3 +1,6 @@
+// TODO: For now, since casting is not possible, Nodes should be strongly typed as well.
+// This means that the graph would be homogenous (behavior would come from
+// the state of the node though), but that may be better than the way it is now.
 use std::thread;
 use std::sync::{mpsc, Arc, Mutex};
 
