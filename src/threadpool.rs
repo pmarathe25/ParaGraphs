@@ -4,8 +4,6 @@ use std::sync::{mpsc, Arc, Mutex};
 #[cfg(test)]
 mod tests {
     use super::{ThreadPool, Execute, WorkerStatus};
-    use std::thread;
-    use std::time;
 
     // Adds two numbers together and stores in sum.
     struct Adder {
@@ -27,7 +25,7 @@ mod tests {
 
     #[test]
     fn can_construct_threadpool() {
-        let pool = ThreadPool::<Adder, i32>::new(8);
+        let _pool = ThreadPool::<Adder, i32>::new(8);
     }
 
     #[test]
@@ -121,6 +119,7 @@ pub enum WorkerStatus<Node, Edge> where Node: Execute<Edge> + Send, Edge: Send {
 // Worker manages a single thread. It can receive jobs via the associated mpsc::Receiver.
 // Each job should be accompanied by an id so it can be identified.
 struct Worker {
+    #[allow(dead_code)]
     id: usize,
     thread: Option<thread::JoinHandle<()>>,
 }
