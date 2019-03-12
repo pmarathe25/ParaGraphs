@@ -17,7 +17,7 @@ mod tests {
     }
 
     impl ThreadExecute<i32> for Adder {
-        fn execute(&mut self, inputs: Vec<Arc<i32>>) -> i32 {
+        fn execute(&mut self, inputs: Vec<&i32>) -> i32 {
             let mut sum = 0;
             for inp in inputs {
                 sum += *inp;
@@ -98,13 +98,15 @@ mod tests {
 
 // Any job to be executed by this ThreadPool must be ThreadExecute.
 pub trait ThreadExecute<Data> : Send where Data: Send + Sync {
-    fn execute(&mut self, inputs: Vec<Arc<Data>>) -> Data;
+    fn execute(&mut self, inputs: Vec<&Data>) -> Data;
 }
 
 // Any type which is ThreadExecute and Send can be dispatched via the ThreadPool.
 // Messages are sent from the ThreadPool to each worker.
 // Each message can either be a new job, which includes an node and unique identifier,
 // or the Terminate signal, which signals the Worker to stop listening for new jobs.
+// TODO: For some types, cloning might be cheaper than using an Arc. Need to do some
+// kind of compile-time size check on Data.
 enum Message<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
     Job(Node, Vec<Arc<Data>>, usize),
     Terminate,
@@ -140,7 +142,14 @@ impl Worker {
                     // New jobs are executed, and a status message is returned which packages the
                     // included Executable and its id.
                     Message::Job(mut node, inputs, job_id) => {
-                        let result = node.execute(inputs);
+                        // Pass a vector of references to the node, for ease-of-use in the
+                        // public API. This should be fairly light-weight, as it just
+                        // dereferences the Arcs and takes immutable references. 
+                        let mut deref_inputs: Vec<&Data> = Vec::with_capacity(inputs.len());
+                        for input in inputs.iter() {
+                            deref_inputs.push(&*input);
+                        }
+                        let result = node.execute(deref_inputs);
                         match sender.send(WorkerStatus::Complete(node, result, job_id)) {
                             Ok(_) => (),
                             Err(what) => panic!("Worker {} could not send node {} status.\n{}", id, job_id, what),
