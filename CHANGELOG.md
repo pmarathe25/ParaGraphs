@@ -3,6 +3,7 @@
 
 ## vNext ()
 - Nodes now also receive a container of Edges as an input when they execute. This means that Nodes can depend on the outputs of previous nodes.
+- Renames Edge to Data for clarity. 
 
 ## v0.0.1 (11-03-2019)
 - Makes ThreadPool generic over an Edge type. This can be used for inter-node communication. For now, the whole graph must use the same Edge type.

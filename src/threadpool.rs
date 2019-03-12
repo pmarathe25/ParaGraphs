@@ -42,7 +42,7 @@ mod tests {
 
     #[test]
     fn can_move_jobs_to_pool() {
-        // Try to create a vector of nodeutables, and then Send them to the pool.
+        // Try to create a vector of nodes, and then Send them to the pool.
         // We need to use Option here so we can safely move them back and forth.
         let num_adders = 8;
         let mut adders: Vec<Option<Adder>> = std::iter::repeat(Some(Adder::new())).take(num_adders).collect();
@@ -56,7 +56,7 @@ mod tests {
 
     #[test]
     fn can_retrieve_jobs_from_pool() {
-        // Try to create a vector of nodeutables, and then Send them to the pool.
+        // Try to create a vector of nodes, and then Send them to the pool.
         // We need to use Option here so we can safely move them back and forth.
         let num_adders = 8;
         let mut adders: Vec<Option<Adder>> = std::iter::repeat(Some(Adder::new())).take(num_adders).collect();
@@ -93,25 +93,25 @@ mod tests {
 }
 
 // Any job to be executed by this ThreadPool must be Execute.
-pub trait Execute<Edge> where Edge: Send {
-    fn execute(&mut self, inputs: Vec<Edge>) -> Edge;
+pub trait Execute<Data> where Data: Send {
+    fn execute(&mut self, inputs: Vec<Data>) -> Data;
 }
 
 // Any type which is Execute and Send can be dispatched via the ThreadPool.
 // Messages are sent from the ThreadPool to each worker.
 // Each message can either be a new job, which includes an node and unique identifier,
 // or the Terminate signal, which signals the Worker to stop listening for new jobs.
-enum Message<Node, Edge> where Node: Execute<Edge> + Send, Edge: Send {
-    Job(Node, Vec<Edge>, usize),
+enum Message<Node, Data> where Node: Execute<Data> + Send, Data: Send {
+    Job(Node, Vec<Data>, usize),
     Terminate,
 }
 
 // WorkerStatus is used by each thread to report when it is finished.
 // As part of this message, the worker also sends back the Node and the job ID,
-// as well as the result of the Node (Edge).
+// as well as the result of the Node (Data).
 // The node may or may not be stateful.
-pub enum WorkerStatus<Node, Edge> where Node: Execute<Edge> + Send, Edge: Send {
-    Complete(Node, Edge, usize),
+pub enum WorkerStatus<Node, Data> where Node: Execute<Data> + Send, Data: Send {
+    Complete(Node, Data, usize),
 }
 
 // Worker manages a single thread. It can receive jobs via the associated mpsc::Receiver.
@@ -124,10 +124,10 @@ struct Worker {
 
 impl Worker {
     // Creates a new worker with the given ID. Also sets up a receiver to listen for jobs.
-    fn new<Node: 'static, Edge: 'static>(id: usize,
-        node_receiver: Arc<Mutex<mpsc::Receiver<Message<Node, Edge>>>>,
-        sender: mpsc::Sender<WorkerStatus<Node, Edge>>) -> Worker
-        where Node: Execute<Edge> + Send, Edge: Send {
+    fn new<Node: 'static, Data: 'static>(id: usize,
+        node_receiver: Arc<Mutex<mpsc::Receiver<Message<Node, Data>>>>,
+        sender: mpsc::Sender<WorkerStatus<Node, Data>>) -> Worker
+        where Node: Execute<Data> + Send, Data: Send {
         let thread = thread::spawn(move || {
             loop {
                 // Listen for jobs. This blocks and is NOT a busy wait.
@@ -157,14 +157,14 @@ impl Worker {
 // The ThreadPool tracks a group of workers. When a new Executable is received, it is moved into
 // a worker where it is executed. Afterwards, it can be moved back by listening on
 // the wstatus_receiver.
-pub struct ThreadPool<Node, Edge> where Node: Execute<Edge> + Send, Edge: Send {
+pub struct ThreadPool<Node, Data> where Node: Execute<Data> + Send, Data: Send {
     workers: Vec<Worker>,
-    node_sender: mpsc::Sender<Message<Node, Edge>>,
-    pub wstatus_receiver: mpsc::Receiver<WorkerStatus<Node, Edge>>,
+    node_sender: mpsc::Sender<Message<Node, Data>>,
+    pub wstatus_receiver: mpsc::Receiver<WorkerStatus<Node, Data>>,
 }
 
-impl<Node: 'static, Edge: 'static> ThreadPool<Node, Edge> where Node: Execute<Edge> + Send, Edge: Send {
-    pub fn new(num_workers: usize) -> ThreadPool<Node, Edge> {
+impl<Node: 'static, Data: 'static> ThreadPool<Node, Data> where Node: Execute<Data> + Send, Data: Send {
+    pub fn new(num_workers: usize) -> ThreadPool<Node, Data> {
         assert!(num_workers > 0);
         let (node_sender, node_receiver) = mpsc::channel();
         let node_receiver = Arc::new(Mutex::new(node_receiver));
@@ -180,13 +180,13 @@ impl<Node: 'static, Edge: 'static> ThreadPool<Node, Edge> where Node: Execute<Ed
     }
 
     /// Executes the provided node with the provided inputs.
-    pub fn execute(&self, node: Node, inputs: Vec<Edge>, id: usize) {
+    pub fn execute(&self, node: Node, inputs: Vec<Data>, id: usize) {
         self.node_sender.send(Message::Job(node, inputs, id)).unwrap();
     }
 }
 
 // Implements graceful shutdown and clean up for the ThreadPool.
-impl<Node, Edge> Drop for ThreadPool<Node, Edge> where Node: Execute<Edge> + Send, Edge: Send {
+impl<Node, Data> Drop for ThreadPool<Node, Data> where Node: Execute<Data> + Send, Data: Send {
     fn drop(&mut self) {
         for _ in &self.workers {
             self.node_sender.send(Message::Terminate).unwrap();
