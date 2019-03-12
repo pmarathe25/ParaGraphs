@@ -3,6 +3,7 @@ use std::sync::{mpsc, Arc, Mutex};
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use super::{ThreadPool, ThreadExecute, WorkerStatus};
 
     // Adds two numbers together.
@@ -16,10 +17,10 @@ mod tests {
     }
 
     impl ThreadExecute<i32> for Adder {
-        fn execute(&mut self, inputs: Vec<i32>) -> i32 {
+        fn execute(&mut self, inputs: Vec<Arc<i32>>) -> i32 {
             let mut sum = 0;
             for inp in inputs {
-                sum += inp;
+                sum += *inp;
             }
             return sum;
         }
@@ -36,7 +37,7 @@ mod tests {
         let pool = ThreadPool::new(8);
         for i in 0..8 {
             let adder = Adder::new();
-            pool.execute(adder, vec!(1, i), i as usize);
+            pool.execute(adder, vec!(Arc::new(1), Arc::new(i)), i as usize);
         }
     }
 
@@ -49,7 +50,7 @@ mod tests {
 
         let pool = ThreadPool::new(8);
         for (index, adder) in adders.iter_mut().enumerate() {
-            pool.execute(adder.take().unwrap(), vec!(index as i32, 1), index);
+            pool.execute(adder.take().unwrap(), vec!(Arc::new(index as i32), Arc::new(1)), index);
         }
         assert_eq!(adders.len(), num_adders);
     }
@@ -58,17 +59,17 @@ mod tests {
     fn can_retrieve_jobs_from_pool() {
         // Try to create a vector of nodes, and then Send them to the pool.
         // We need to use Option here so we can safely move them back and forth.
-        let num_adders = 8;
+        const num_adders: usize = 8;
         let mut adders: Vec<Option<Adder>> = std::iter::repeat(Some(Adder::new())).take(num_adders).collect();
         // Create a pool and puh all the adders.
         let pool = ThreadPool::new(8);
         for (index, adder) in adders.iter_mut().enumerate() {
-            pool.execute(adder.take().unwrap(), vec!(1, index as i32), index);
+            pool.execute(adder.take().unwrap(), vec!(Arc::new(1), Arc::new(index as i32)), index);
         }
         assert_eq!(adders.len(), num_adders);
         // Next, try to retrieve the jobs. We know that there are exactly num_adders jobs.
         let mut num_running_jobs = num_adders.clone();
-        let mut results = Vec::new();
+        let mut results = vec![0; num_adders];
         while num_running_jobs > 0 {
             if let Ok(wstatus) = pool.wstatus_receiver.recv() {
                 match wstatus {
@@ -77,13 +78,16 @@ mod tests {
                         if let Some(opt) = adders.get_mut(id) {
                             opt.replace(adder);
                         }
-                        results.push(result);
+                        if let Some(elem) = results.get_mut(id) {
+                            *elem = result;
+                        }
                         println!("Replacing {}", id);
                         num_running_jobs -= 1;
                     },
                 };
             };
         }
+        println!("{:?}", results);
         for (index, result) in results.into_iter().enumerate() {
             println!("Checking result {}", index);
             assert_eq!(result, 1 + index as i32);
@@ -93,16 +97,16 @@ mod tests {
 }
 
 // Any job to be executed by this ThreadPool must be ThreadExecute.
-pub trait ThreadExecute<Data> : Send where Data: Send {
-    fn execute(&mut self, inputs: Vec<Data>) -> Data;
+pub trait ThreadExecute<Data> : Send where Data: Send + Sync {
+    fn execute(&mut self, inputs: Vec<Arc<Data>>) -> Data;
 }
 
 // Any type which is ThreadExecute and Send can be dispatched via the ThreadPool.
 // Messages are sent from the ThreadPool to each worker.
 // Each message can either be a new job, which includes an node and unique identifier,
 // or the Terminate signal, which signals the Worker to stop listening for new jobs.
-enum Message<Node, Data> where Node: ThreadExecute<Data>, Data: Send {
-    Job(Node, Vec<Data>, usize),
+enum Message<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
+    Job(Node, Vec<Arc<Data>>, usize),
     Terminate,
 }
 
@@ -110,7 +114,7 @@ enum Message<Node, Data> where Node: ThreadExecute<Data>, Data: Send {
 // As part of this message, the worker also sends back the Node and the job ID,
 // as well as the result of the Node (Data).
 // The node may or may not be stateful.
-pub enum WorkerStatus<Node, Data> where Node: ThreadExecute<Data>, Data: Send {
+pub enum WorkerStatus<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
     Complete(Node, Data, usize),
 }
 
@@ -127,7 +131,7 @@ impl Worker {
     fn new<Node: 'static, Data: 'static>(id: usize,
         node_receiver: Arc<Mutex<mpsc::Receiver<Message<Node, Data>>>>,
         sender: mpsc::Sender<WorkerStatus<Node, Data>>) -> Worker
-        where Node: ThreadExecute<Data>, Data: Send {
+        where Node: ThreadExecute<Data>, Data: Send + Sync {
         let thread = thread::spawn(move || {
             loop {
                 // Listen for jobs. This blocks and is NOT a busy wait.
@@ -157,13 +161,13 @@ impl Worker {
 // The ThreadPool tracks a group of workers. When a new Executable is received, it is moved into
 // a worker where it is executed. Afterwards, it can be moved back by listening on
 // the wstatus_receiver.
-pub struct ThreadPool<Node, Data> where Node: ThreadExecute<Data>, Data: Send {
+pub struct ThreadPool<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
     workers: Vec<Worker>,
     node_sender: mpsc::Sender<Message<Node, Data>>,
     pub wstatus_receiver: mpsc::Receiver<WorkerStatus<Node, Data>>,
 }
 
-impl<Node: 'static, Data: 'static> ThreadPool<Node, Data> where Node: ThreadExecute<Data>, Data: Send {
+impl<Node: 'static, Data: 'static> ThreadPool<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
     pub fn new(num_workers: usize) -> ThreadPool<Node, Data> {
         assert!(num_workers > 0);
         let (node_sender, node_receiver) = mpsc::channel();
@@ -180,13 +184,13 @@ impl<Node: 'static, Data: 'static> ThreadPool<Node, Data> where Node: ThreadExec
     }
 
     /// Executes the provided node with the provided inputs.
-    pub fn execute(&self, node: Node, inputs: Vec<Data>, id: usize) {
+    pub fn execute(&self, node: Node, inputs: Vec<Arc<Data>>, id: usize) {
         self.node_sender.send(Message::Job(node, inputs, id)).unwrap();
     }
 }
 
 // Implements graceful shutdown and clean up for the ThreadPool.
-impl<Node, Data> Drop for ThreadPool<Node, Data> where Node: ThreadExecute<Data>, Data: Send {
+impl<Node, Data> Drop for ThreadPool<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
     fn drop(&mut self) {
         for _ in &self.workers {
             self.node_sender.send(Message::Terminate).unwrap();
