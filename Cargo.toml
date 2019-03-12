@@ -1,7 +1,9 @@
 [package]
 name = "paragraphs"
-version = "0.1.0"
+version = "0.0.1"
 authors = ["Pranav Marathe <pmarathe25@gmail.com>"]
 edition = "2018"
+license = "MIT"
+description = "A Parallel Graph Execution Library"
 
 [dependencies]
