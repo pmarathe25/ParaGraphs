@@ -142,12 +142,15 @@ impl Worker {
                     // New jobs are executed, and a status message is returned which packages the
                     // included Executable and its id.
                     Message::Job(mut node, inputs, job_id) => {
-                        // Pass a vector of references to the node, for ease-of-use in the
-                        // public API. This should be fairly light-weight, as it just
-                        // dereferences the Arcs and takes immutable references. 
-                        let mut deref_inputs: Vec<&Data> = Vec::with_capacity(inputs.len());
-                        for input in inputs.iter() {
-                            deref_inputs.push(&*input);
+                        // Consume the vector of Arcs, and create a vector of references,
+                        // for ease-of-use in the public API. This should be fairly
+                        // light-weight, as it just dereferences the Arcs.
+                        // TODO: If this turns out not to be light-weight, need to use
+                        // Arcs in the public API.
+                        let deref_inputs;
+                        unsafe {
+                            deref_inputs = inputs.into_iter().map(
+                                |inp| &*Arc::into_raw(inp)).collect();
                         }
                         let result = node.execute(deref_inputs);
                         match sender.send(WorkerStatus::Complete(node, result, job_id)) {
