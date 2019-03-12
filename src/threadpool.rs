@@ -3,7 +3,7 @@ use std::sync::{mpsc, Arc, Mutex};
 
 #[cfg(test)]
 mod tests {
-    use super::{ThreadPool, Execute, WorkerStatus};
+    use super::{ThreadPool, ThreadExecute, WorkerStatus};
 
     // Adds two numbers together.
     #[derive(Debug, Clone)]
@@ -15,7 +15,7 @@ mod tests {
         }
     }
 
-    impl Execute<i32> for Adder {
+    impl ThreadExecute<i32> for Adder {
         fn execute(&mut self, inputs: Vec<i32>) -> i32 {
             let mut sum = 0;
             for inp in inputs {
@@ -92,16 +92,16 @@ mod tests {
     }
 }
 
-// Any job to be executed by this ThreadPool must be Execute.
-pub trait Execute<Data> where Data: Send {
+// Any job to be executed by this ThreadPool must be ThreadExecute.
+pub trait ThreadExecute<Data> : Send where Data: Send {
     fn execute(&mut self, inputs: Vec<Data>) -> Data;
 }
 
-// Any type which is Execute and Send can be dispatched via the ThreadPool.
+// Any type which is ThreadExecute and Send can be dispatched via the ThreadPool.
 // Messages are sent from the ThreadPool to each worker.
 // Each message can either be a new job, which includes an node and unique identifier,
 // or the Terminate signal, which signals the Worker to stop listening for new jobs.
-enum Message<Node, Data> where Node: Execute<Data> + Send, Data: Send {
+enum Message<Node, Data> where Node: ThreadExecute<Data>, Data: Send {
     Job(Node, Vec<Data>, usize),
     Terminate,
 }
@@ -110,7 +110,7 @@ enum Message<Node, Data> where Node: Execute<Data> + Send, Data: Send {
 // As part of this message, the worker also sends back the Node and the job ID,
 // as well as the result of the Node (Data).
 // The node may or may not be stateful.
-pub enum WorkerStatus<Node, Data> where Node: Execute<Data> + Send, Data: Send {
+pub enum WorkerStatus<Node, Data> where Node: ThreadExecute<Data>, Data: Send {
     Complete(Node, Data, usize),
 }
 
@@ -127,7 +127,7 @@ impl Worker {
     fn new<Node: 'static, Data: 'static>(id: usize,
         node_receiver: Arc<Mutex<mpsc::Receiver<Message<Node, Data>>>>,
         sender: mpsc::Sender<WorkerStatus<Node, Data>>) -> Worker
-        where Node: Execute<Data> + Send, Data: Send {
+        where Node: ThreadExecute<Data>, Data: Send {
         let thread = thread::spawn(move || {
             loop {
                 // Listen for jobs. This blocks and is NOT a busy wait.
@@ -157,13 +157,13 @@ impl Worker {
 // The ThreadPool tracks a group of workers. When a new Executable is received, it is moved into
 // a worker where it is executed. Afterwards, it can be moved back by listening on
 // the wstatus_receiver.
-pub struct ThreadPool<Node, Data> where Node: Execute<Data> + Send, Data: Send {
+pub struct ThreadPool<Node, Data> where Node: ThreadExecute<Data>, Data: Send {
     workers: Vec<Worker>,
     node_sender: mpsc::Sender<Message<Node, Data>>,
     pub wstatus_receiver: mpsc::Receiver<WorkerStatus<Node, Data>>,
 }
 
-impl<Node: 'static, Data: 'static> ThreadPool<Node, Data> where Node: Execute<Data> + Send, Data: Send {
+impl<Node: 'static, Data: 'static> ThreadPool<Node, Data> where Node: ThreadExecute<Data>, Data: Send {
     pub fn new(num_workers: usize) -> ThreadPool<Node, Data> {
         assert!(num_workers > 0);
         let (node_sender, node_receiver) = mpsc::channel();
@@ -186,7 +186,7 @@ impl<Node: 'static, Data: 'static> ThreadPool<Node, Data> where Node: Execute<Da
 }
 
 // Implements graceful shutdown and clean up for the ThreadPool.
-impl<Node, Data> Drop for ThreadPool<Node, Data> where Node: Execute<Data> + Send, Data: Send {
+impl<Node, Data> Drop for ThreadPool<Node, Data> where Node: ThreadExecute<Data>, Data: Send {
     fn drop(&mut self) {
         for _ in &self.workers {
             self.node_sender.send(Message::Terminate).unwrap();

@@ -3,7 +3,8 @@
 
 ## vNext ()
 - Nodes now also receive a container of Edges as an input when they execute. This means that Nodes can depend on the outputs of previous nodes.
-- Renames Edge to Data for clarity. 
+- Renames Edge to Data for clarity.
+- Renames Execute to ThreadExecute. Additionally, ThreadExecute implies Send.
 
 ## v0.0.1 (11-03-2019)
 - Makes ThreadPool generic over an Edge type. This can be used for inter-node communication. For now, the whole graph must use the same Edge type.
