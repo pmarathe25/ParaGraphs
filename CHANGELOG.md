@@ -5,3 +5,4 @@
 - Adds Executable type, which can be dispatched to the ThreadPool.
 - Makes ThreadPool generic over an Edge type. This can be used for inter-node communication. For now, the whole graph must use the same Edge type.
 - Makes ThreadPool generic over Node types as well. Nodes do not need to be stateful (though they can be), as the execute function now returns an Edge.
+- Nodes now also receive a container of Edges as an input when they execute. This means that Nodes can depend on the outputs of previous nodes.

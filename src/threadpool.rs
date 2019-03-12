@@ -5,21 +5,23 @@ use std::sync::{mpsc, Arc, Mutex};
 mod tests {
     use super::{ThreadPool, Execute, WorkerStatus};
 
-    // Adds two numbers together and stores in sum.
-    struct Adder {
-        lhs: i32,
-        rhs: i32,
-    }
+    // Adds two numbers together.
+    #[derive(Debug, Clone)]
+    struct Adder {}
 
     impl Adder {
-        fn new(lhs: i32, rhs: i32) -> Adder {
-            return Adder{lhs: lhs, rhs: rhs};
+        fn new() -> Adder {
+            return Adder{};
         }
     }
 
     impl Execute<i32> for Adder {
-        fn execute(&mut self) -> i32 {
-            return self.lhs + self.rhs;
+        fn execute(&mut self, inputs: Vec<i32>) -> i32 {
+            let mut sum = 0;
+            for inp in inputs {
+                sum += inp;
+            }
+            return sum;
         }
     }
 
@@ -33,8 +35,8 @@ mod tests {
         // Launch some arbitrary job, like waiting.
         let pool = ThreadPool::new(8);
         for i in 0..8 {
-            let adder = Adder::new(i, 1);
-            pool.execute(adder, i as usize);
+            let adder = Adder::new();
+            pool.execute(adder, vec!(1, i), i as usize);
         }
     }
 
@@ -43,11 +45,11 @@ mod tests {
         // Try to create a vector of nodeutables, and then Send them to the pool.
         // We need to use Option here so we can safely move them back and forth.
         let num_adders = 8;
-        let mut adders: Vec<Option<Adder>> = std::iter::repeat_with(|| return Some(Adder::new(1, 5))).take(num_adders).collect();
+        let mut adders: Vec<Option<Adder>> = std::iter::repeat(Some(Adder::new())).take(num_adders).collect();
 
         let pool = ThreadPool::new(8);
         for (index, adder) in adders.iter_mut().enumerate() {
-            pool.execute(adder.take().unwrap(), index);
+            pool.execute(adder.take().unwrap(), vec!(index as i32, 1), index);
         }
         assert_eq!(adders.len(), num_adders);
     }
@@ -57,15 +59,11 @@ mod tests {
         // Try to create a vector of nodeutables, and then Send them to the pool.
         // We need to use Option here so we can safely move them back and forth.
         let num_adders = 8;
-        let mut adders: Vec<Option<Adder>> = Vec::with_capacity(num_adders);
-        for i in 0..num_adders {
-            let incrementer = Adder::new(1, i as i32);
-            adders.push(Some(incrementer));
-        }
+        let mut adders: Vec<Option<Adder>> = std::iter::repeat(Some(Adder::new())).take(num_adders).collect();
         // Create a pool and puh all the adders.
         let pool = ThreadPool::new(8);
         for (index, adder) in adders.iter_mut().enumerate() {
-            pool.execute(adder.take().unwrap(), index);
+            pool.execute(adder.take().unwrap(), vec!(1, index as i32), index);
         }
         assert_eq!(adders.len(), num_adders);
         // Next, try to retrieve the jobs. We know that there are exactly num_adders jobs.
@@ -96,7 +94,7 @@ mod tests {
 
 // Any job to be executed by this ThreadPool must be Execute.
 pub trait Execute<Edge> where Edge: Send {
-    fn execute(&mut self) -> Edge;
+    fn execute(&mut self, inputs: Vec<Edge>) -> Edge;
 }
 
 // Any type which is Execute and Send can be dispatched via the ThreadPool.
@@ -104,8 +102,8 @@ pub trait Execute<Edge> where Edge: Send {
 // Each message can either be a new job, which includes an node and unique identifier,
 // or the Terminate signal, which signals the Worker to stop listening for new jobs.
 enum Message<Node, Edge> where Node: Execute<Edge> + Send, Edge: Send {
-    Job(Node, usize),
-    Terminate(std::marker::PhantomData<Edge>)
+    Job(Node, Vec<Edge>, usize),
+    Terminate,
 }
 
 // WorkerStatus is used by each thread to report when it is finished.
@@ -137,8 +135,8 @@ impl Worker {
                 match message {
                     // New jobs are executed, and a status message is returned which packages the
                     // included Executable and its id.
-                    Message::Job(mut node, job_id) => {
-                        let result = node.execute();
+                    Message::Job(mut node, inputs, job_id) => {
+                        let result = node.execute(inputs);
                         match sender.send(WorkerStatus::Complete(node, result, job_id)) {
                             Ok(_) => (),
                             Err(what) => panic!("Worker {} could not send node {} status.\n{}", id, job_id, what),
@@ -146,7 +144,7 @@ impl Worker {
                     },
                     // Terminate will break out of the loop, so that this Worker
                     // is no longer listening for jobs.
-                    Message::Terminate(_) => {
+                    Message::Terminate => {
                         break;
                     }
                 }
@@ -181,8 +179,9 @@ impl<Node: 'static, Edge: 'static> ThreadPool<Node, Edge> where Node: Execute<Ed
         return ThreadPool{workers: workers, node_sender: node_sender, wstatus_receiver: wstatus_receiver};
     }
 
-    pub fn execute(&self, node: Node, id: usize) {
-        self.node_sender.send(Message::Job(node, id)).unwrap();
+    /// Executes the provided node with the provided inputs.
+    pub fn execute(&self, node: Node, inputs: Vec<Edge>, id: usize) {
+        self.node_sender.send(Message::Job(node, inputs, id)).unwrap();
     }
 }
 
@@ -190,7 +189,7 @@ impl<Node: 'static, Edge: 'static> ThreadPool<Node, Edge> where Node: Execute<Ed
 impl<Node, Edge> Drop for ThreadPool<Node, Edge> where Node: Execute<Edge> + Send, Edge: Send {
     fn drop(&mut self) {
         for _ in &self.workers {
-            self.node_sender.send(Message::Terminate(std::marker::PhantomData)).unwrap();
+            self.node_sender.send(Message::Terminate).unwrap();
         }
 
         for worker in &mut self.workers {
