@@ -1,4 +1,4 @@
-# ParaGraph - Parallel Graph Execution Library
+# ParaGraphs - Parallel Graph Execution Library
 
 ## v0.1.0 (10/03/2019)
 - Adds Executable type, which can be dispatched to the ThreadPool.

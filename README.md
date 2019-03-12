@@ -1,1 +1,1 @@
-# ParaGraph - Parallel Graph Execution Library
+# ParaGraphs - Parallel Graph Execution Library
