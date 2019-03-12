@@ -101,7 +101,6 @@ pub trait ThreadExecute<Data> : Send where Data: Send + Sync {
     fn execute(&mut self, inputs: Vec<&Data>) -> Data;
 }
 
-// Any type which is ThreadExecute and Send can be dispatched via the ThreadPool.
 // Messages are sent from the ThreadPool to each worker.
 // Each message can either be a new job, which includes an node and unique identifier,
 // or the Terminate signal, which signals the Worker to stop listening for new jobs.
@@ -115,32 +114,30 @@ enum Message<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
 // WorkerStatus is used by each thread to report when it is finished.
 // As part of this message, the worker also sends back the Node and the job ID,
 // as well as the result of the Node (Data).
-// The node may or may not be stateful.
-pub enum WorkerStatus<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
+enum WorkerStatus<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
     Complete(Node, Data, usize),
 }
 
-// Worker manages a single thread. It can receive jobs via the associated mpsc::Receiver.
-// Each job should be accompanied by an id so it can be identified.
+// Worker manages a single thread. It can receive Jobs via the associated mpsc::Receiver.
 struct Worker {
     #[allow(dead_code)]
     id: usize,
     thread: Option<thread::JoinHandle<()>>,
 }
 
+// A receiver that listens for messages from the ThreadPool.
+type JobReceiver<Node, Data> = Arc<Mutex<mpsc::Receiver<Message<Node, Data>>>>;
+// A sender that sends WorkerStatus messages to the ThreadPool.
+type WorkerSender<Node, Data> = mpsc::Sender<WorkerStatus<Node, Data>>;
+
 impl Worker {
     // Creates a new worker with the given ID. Also sets up a receiver to listen for jobs.
-    fn new<Node: 'static, Data: 'static>(id: usize,
-        node_receiver: Arc<Mutex<mpsc::Receiver<Message<Node, Data>>>>,
-        sender: mpsc::Sender<WorkerStatus<Node, Data>>) -> Worker
-        where Node: ThreadExecute<Data>, Data: Send + Sync {
+    fn new<Node: 'static, Data: 'static>(id: usize, node_receiver: JobReceiver<Node, Data>, sender: WorkerSender<Node, Data>) -> Worker where Node: ThreadExecute<Data>, Data: Send + Sync {
         let thread = thread::spawn(move || {
             loop {
                 // Listen for jobs. This blocks and is NOT a busy wait.
                 let message = node_receiver.lock().unwrap().recv().unwrap();
                 match message {
-                    // New jobs are executed, and a status message is returned which packages the
-                    // included Executable and its id.
                     Message::Job(mut node, inputs, job_id) => {
                         // Consume the vector of Arcs, and create a vector of references,
                         // for ease-of-use in the public API. This should be fairly
@@ -173,7 +170,7 @@ impl Worker {
 // The ThreadPool tracks a group of workers. When a new Executable is received, it is moved into
 // a worker where it is executed. Afterwards, it can be moved back by listening on
 // the wstatus_receiver.
-pub struct ThreadPool<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
+struct ThreadPool<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
     workers: Vec<Worker>,
     node_sender: mpsc::Sender<Message<Node, Data>>,
     pub wstatus_receiver: mpsc::Receiver<WorkerStatus<Node, Data>>,
