@@ -45,31 +45,31 @@ mod tests {
     fn can_move_jobs_to_pool() {
         // Try to create a vector of nodes, and then Send them to the pool.
         // We need to use Option here so we can safely move them back and forth.
-        let num_adders = 8;
-        let mut adders: Vec<Option<Adder>> = std::iter::repeat(Some(Adder::new())).take(num_adders).collect();
+        const NUM_ADDERS: usize = 8;
+        let mut adders: Vec<Option<Adder>> = vec![Some(Adder::new()); NUM_ADDERS];
 
         let pool = ThreadPool::new(8);
         for (index, adder) in adders.iter_mut().enumerate() {
             pool.execute(adder.take().unwrap(), vec!(Arc::new(index as i32), Arc::new(1)), index);
         }
-        assert_eq!(adders.len(), num_adders);
+        assert_eq!(adders.len(), NUM_ADDERS);
     }
 
     #[test]
     fn can_retrieve_jobs_from_pool() {
         // Try to create a vector of nodes, and then Send them to the pool.
         // We need to use Option here so we can safely move them back and forth.
-        const num_adders: usize = 8;
-        let mut adders: Vec<Option<Adder>> = std::iter::repeat(Some(Adder::new())).take(num_adders).collect();
+        const NUM_ADDERS: usize = 8;
+        let mut adders: Vec<Option<Adder>> = vec![Some(Adder::new()); NUM_ADDERS];
         // Create a pool and puh all the adders.
         let pool = ThreadPool::new(8);
         for (index, adder) in adders.iter_mut().enumerate() {
             pool.execute(adder.take().unwrap(), vec!(Arc::new(1), Arc::new(index as i32)), index);
         }
-        assert_eq!(adders.len(), num_adders);
-        // Next, try to retrieve the jobs. We know that there are exactly num_adders jobs.
-        let mut num_running_jobs = num_adders.clone();
-        let mut results = vec![0; num_adders];
+        assert_eq!(adders.len(), NUM_ADDERS);
+        // Next, try to retrieve the jobs. We know that there are exactly NUM_ADDERS jobs.
+        let mut num_running_jobs = NUM_ADDERS.clone();
+        let mut results = vec![0; NUM_ADDERS];
         while num_running_jobs > 0 {
             if let Ok(wstatus) = pool.wstatus_receiver.recv() {
                 match wstatus {
