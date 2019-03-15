@@ -1,4 +1,5 @@
 pub mod threadpool;
+pub mod graph;
 // use crate::threadpool::ThreadPool;
 
 // First create a Node trait.

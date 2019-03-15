@@ -2,16 +2,16 @@ use std::thread;
 use std::sync::{mpsc, Arc, Mutex};
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::sync::Arc;
     use super::{ThreadPool, ThreadExecute, WorkerStatus};
 
     // Adds two numbers together.
     #[derive(Debug, Clone)]
-    struct Adder {}
+    pub(crate) struct Adder {}
 
     impl Adder {
-        fn new() -> Adder {
+        pub(crate) fn new() -> Adder {
             return Adder{};
         }
     }
@@ -33,7 +33,7 @@ mod tests {
 
     #[test]
     fn can_launch_jobs() {
-        // Launch some arbitrary job, like waiting.
+        // Launch some arbitrary job, like adding.
         let pool = ThreadPool::new(8);
         for i in 0..8 {
             let adder = Adder::new();
