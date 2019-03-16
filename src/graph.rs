@@ -1,6 +1,6 @@
 use crate::threadpool::ThreadExecute;
 use std::sync::Arc;
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use std::iter::FromIterator;
 
 #[cfg(test)]
@@ -33,11 +33,12 @@ mod tests {
     fn can_compile_graph() {
         let mut graph = Graph::new();
         let input = graph.add(Adder::new(), vec![]);
+        // Diamond graph.
         let hidden1 = graph.add(Adder::new(), vec![input]);
-        let hidden2 = graph.add(Adder::new(), vec![hidden1]);
+        let hidden2 = graph.add(Adder::new(), vec![input]);
         let _deadend = graph.add(Adder::new(), vec![hidden1]);
-        let output1 = graph.add(Adder::new(), vec![hidden2]);
-        let output2 = graph.add(Adder::new(), vec![hidden2]);
+        let output1 = graph.add(Adder::new(), vec![hidden1, hidden2]);
+        let output2 = graph.add(Adder::new(), vec![hidden1, hidden2]);
         println!("Graph: {:?}", graph);
         // Get recipe for the first output.
         let out1_recipe = graph.compile(vec![output1]);
@@ -54,16 +55,20 @@ mod tests {
     }
 }
 
-// A simple struct for specifying what nodes need to be run, and which of them are inputs.
+// A simple struct for specifying what nodes need to be run, and which of them are
+// graph inputs/outputs. This struct also allocates space for storing intermediate outputs.
 #[derive(Debug)]
-pub struct Recipe {
+pub struct Recipe<Data> {
     runs: HashSet<usize>,
-    inputs: Vec<usize>
+    inputs: Vec<usize>,
+    outputs: Vec<usize>,
+    intermediates: HashMap<usize, Arc<Data>>
 }
 
-impl Recipe {
-    fn new(runs: HashSet<usize>, inputs: Vec<usize>) -> Recipe {
-        return Recipe{runs: runs, inputs: inputs};
+impl<Data> Recipe<Data> {
+    fn new(runs: HashSet<usize>, inputs: Vec<usize>, outputs: Vec<usize>) -> Recipe<Data> {
+        let num_nodes = runs.len();
+        return Recipe{runs: runs, inputs: inputs, outputs: outputs, intermediates: HashMap::with_capacity(num_nodes)};
     }
 }
 
@@ -107,11 +112,12 @@ impl<Node, Data> Graph<Node, Data> where Node: ThreadExecute<Data>, Data: Send +
         return node_id;
     }
 
-    // TODO: Need to have a separate function that takes fetches and builds some kind of
-    // Recipe structure that the user can query for inputs.
-    pub fn compile(&self, mut fetches: Vec<usize>) -> Recipe {
+    pub fn compile(&self, mut fetches: Vec<usize>) -> Recipe<Data> {
         let mut index = 0;
         let mut recipe_inputs = Vec::new();
+        // Remove unecessary duplicates, and then store as recipe_outputs.
+        fetches.dedup();
+        let recipe_outputs = fetches.clone();
         // Walk over fetches, and append the inputs of each node in it to the end of the vector.
         // This is a BFS for finding all nodes that need to be executed.
         while index < fetches.len() {
@@ -126,6 +132,7 @@ impl<Node, Data> Graph<Node, Data> where Node: ThreadExecute<Data>, Data: Send +
             };
             index += 1;
         }
-        return Recipe::new(HashSet::from_iter(fetches), recipe_inputs);
+        recipe_inputs.dedup();
+        return Recipe::new(HashSet::from_iter(fetches), recipe_inputs, recipe_outputs);
     }
 }
