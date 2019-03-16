@@ -114,7 +114,7 @@ enum Message<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
 // WorkerStatus is used by each thread to report when it is finished.
 // As part of this message, the worker also sends back the Node and the job ID,
 // as well as the result of the Node (Data).
-enum WorkerStatus<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
+pub(crate) enum WorkerStatus<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
     Complete(Node, Data, usize),
 }
 
@@ -170,7 +170,7 @@ impl Worker {
 // The ThreadPool tracks a group of workers. When a new Executable is received, it is moved into
 // a worker where it is executed. Afterwards, it can be moved back by listening on
 // the wstatus_receiver.
-struct ThreadPool<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
+pub(crate) struct ThreadPool<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
     workers: Vec<Worker>,
     node_sender: mpsc::Sender<Message<Node, Data>>,
     pub wstatus_receiver: mpsc::Receiver<WorkerStatus<Node, Data>>,
