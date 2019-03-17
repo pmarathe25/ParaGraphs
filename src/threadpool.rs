@@ -17,12 +17,12 @@ pub(crate) mod tests {
     }
 
     impl ThreadExecute<i32> for Adder {
-        fn execute(&mut self, inputs: Vec<&i32>) -> i32 {
+        fn execute(&mut self, inputs: Vec<&i32>) -> Option<i32> {
             let mut sum = 0;
             for inp in inputs {
                 sum += *inp;
             }
-            return sum;
+            return Some(sum);
         }
     }
 
@@ -84,6 +84,7 @@ pub(crate) mod tests {
                         println!("Replacing {}", id);
                         num_running_jobs -= 1;
                     },
+                    WorkerStatus::Fail(id) => panic!("Worker {} failed to execute", id),
                 };
             };
         }
@@ -97,14 +98,15 @@ pub(crate) mod tests {
 }
 
 // Any job to be executed by this ThreadPool must be ThreadExecute.
+// TODO: Docstring here - mention that this function should not panic.
 pub trait ThreadExecute<Data> : Send where Data: Send + Sync {
-    fn execute(&mut self, inputs: Vec<&Data>) -> Data;
+    fn execute(&mut self, inputs: Vec<&Data>) -> Option<Data>;
 }
 
 // Messages are sent from the ThreadPool to each worker.
 // Each message can either be a new job, which includes an node and unique identifier,
 // or the Terminate signal, which signals the Worker to stop listening for new jobs.
-// TODO: For some types, cloning might be cheaper than using an Arc. Need to do some
+// TODO: For some types, cloning might be cheaper than using an Arc. Should do some
 // kind of compile-time size check on Data.
 enum Message<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
     Job(Node, Vec<Arc<Data>>, usize),
@@ -116,6 +118,8 @@ enum Message<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
 // as well as the result of the Node (Data).
 pub(crate) enum WorkerStatus<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
     Complete(Node, Data, usize),
+    // TODO: Return node on failure as well if we want to continue in the event of a failure.
+    Fail(usize),
 }
 
 // Worker manages a single thread. It can receive Jobs via the associated mpsc::Receiver.
@@ -151,7 +155,12 @@ impl Worker {
                                 |inp| &*Arc::into_raw(inp)).collect();
                         }
                         let result = node.execute(deref_inputs);
-                        match sender.send(WorkerStatus::Complete(node, result, job_id)) {
+                        let wstatus : WorkerStatus<Node, Data>;
+                        match result {
+                            Some(output) => wstatus = WorkerStatus::Complete(node, output, job_id),
+                            None => wstatus = WorkerStatus::Fail(id),
+                        }
+                        match sender.send(wstatus) {
                             Ok(_) => (),
                             Err(what) => panic!("Worker {} could not send node {} status.\n{}", id, job_id, what),
                         };

@@ -1,6 +1,9 @@
 # ParaGraphs - Parallel Graph Execution Library
 **NOTE**: Dates are in dd-mm-yyy format.
 
+## vNext ()
+- The execute function now returns an Option, so that the graph is aware when a node has failed.
+
 ## v0.1.1 (16-03-2019)
 - lib.rs now exports Graph and ThreadExecute.
 
