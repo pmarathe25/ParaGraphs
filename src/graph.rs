@@ -1,6 +1,6 @@
 use crate::threadpool::{ThreadExecute, ThreadPool, WorkerStatus};
 use std::collections::{HashSet, HashMap};
-use std::iter::FromIterator;
+use std::iter::{FromIterator, Iterator};
 use std::sync::Arc;
 // DEBUG: TODO: Remove
 use std::fmt::Debug;
@@ -37,11 +37,11 @@ mod tests {
         let mut graph = Graph::new(NUM_THREADS);
         let input = graph.add(Adder::new(), vec![]);
         // Diamond graph.
-        let hidden1 = graph.add(Adder::new(), vec![input]);
-        let hidden2 = graph.add(Adder::new(), vec![input]);
-        let _deadend = graph.add(Adder::new(), vec![hidden1]);
+        let hidden1 = graph.add(Adder::new(), vec![input, input]);
+        let hidden2 = graph.add(Adder::new(), vec![input, input]);
         let output1 = graph.add(Adder::new(), vec![hidden1, hidden2]);
         let output2 = graph.add(Adder::new(), vec![hidden1, hidden2]);
+        let _deadend = graph.add(Adder::new(), vec![hidden1]);
         return (graph, input, hidden1, hidden2, output1, output2);
     }
 
@@ -66,7 +66,9 @@ mod tests {
     #[test]
     fn can_run_graph() {
         let (mut graph, input, _hidden1, _hidden2, output1, output2) = build_diamond_graph();
+        println!("Graph: {:?}", graph);
         let recipe = graph.compile(vec![output1, output2]);
+        println!("Recipe: {:?}", recipe);
         let inputs_map = HashMap::from_iter(vec!(
             (input, vec![1, 2, 3])
         ));
@@ -87,7 +89,6 @@ pub struct Recipe {
 
 impl Recipe {
     fn new(runs: HashSet<usize>, inputs: Vec<usize>, outputs: Vec<usize>, node_outputs: HashMap<usize, HashSet<usize>>) -> Recipe {
-        let num_nodes = runs.len();
         return Recipe{runs: runs, inputs: inputs, outputs: outputs, node_outputs: node_outputs};
     }
 }
@@ -96,8 +97,7 @@ impl Recipe {
 pub struct Graph<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
     // This needs to be an option so that we can take() from it.
     nodes: Vec<Option<Node>>,
-    // TODO: If input order matters, this needs to be a Vec<Vec<usize>>.
-    node_inputs: Vec<HashSet<usize>>,
+    node_inputs: Vec<Vec<usize>>,
     pool: ThreadPool<Node, Data>,
 }
 
@@ -116,14 +116,13 @@ impl<Node: 'static, Data: 'static> Graph<Node, Data> where Node: ThreadExecute<D
         let node_id = self.nodes.len();
         // Push at the end, so that the above will fail if this node is an input to itself.
         self.nodes.push(Some(node));
-        let mut inputs_set = HashSet::new();
-        for input in inputs {
+        let inputs = inputs.into_iter().collect();
+        for &input in &inputs {
             if input >= node_id {
                 panic!("Cannot add {} as an input to {} as it does not exist in the graph.", input, node_id);
             }
-            inputs_set.insert(input);
         }
-        self.node_inputs.push(inputs_set);
+        self.node_inputs.push(inputs);
         return node_id;
     }
 
@@ -164,7 +163,9 @@ impl<Node: 'static, Data: 'static> Graph<Node, Data> where Node: ThreadExecute<D
 
     // Runs the provided Recipe with the provded inputs (map of {node: inputs}).
     // If inputs are missing, panics.
-    pub fn run(&mut self, recipe: &Recipe, mut inputs_map: HashMap<usize, Vec<Data>>) {
+    // DEBUG: TODO: Remove + Debug here
+    pub fn run(&mut self, recipe: &Recipe, mut inputs_map: HashMap<usize, Vec<Data>>) where Data: Debug {
+        // DEBUG: TODO: Remove + Debug here
         fn execute_node<Node: 'static, Data: 'static>(graph: &mut Graph<Node, Data>, node_id: usize, inputs: Vec<Arc<Data>>) where Node: ThreadExecute<Data>, Data: Send + Sync + Debug {
             if let Some(node_option) = graph.nodes.get_mut(node_id) {
                 if let Some(node) = node_option.take() {
@@ -179,6 +180,16 @@ impl<Node: 'static, Data: 'static> Graph<Node, Data> where Node: ThreadExecute<D
         let mut num_nodes_remaining = recipe.runs.len();
         // We also store intermediate outputs of nodes.
         let mut intermediates: HashMap<usize, Arc<Data>> = HashMap::with_capacity(num_nodes_remaining);
+        // Maps each node in recipe.runs to its inputs. When there are no inputs remaining,
+        // it means the node can be executed.
+        let mut node_inputs_map: HashMap<usize, HashSet<usize>> = recipe.runs.iter().map(
+            |index| {
+                match self.node_inputs.get(*index) {
+                    Some(inputs) => (index.clone(), inputs.iter().cloned().collect()),
+                    None => panic!("Node {} is specified in recipe, but does not exist in the graph", index),
+                }
+            }
+        ).collect();
 
         // First, launch all input nodes.
         for input_node in &recipe.inputs {
@@ -186,25 +197,14 @@ impl<Node: 'static, Data: 'static> Graph<Node, Data> where Node: ThreadExecute<D
                 let arc_inputs: Vec<Arc<Data>> = inputs.into_iter().map(|input| Arc::new(input)).collect();
                 // Queue up every input node.
                 execute_node(self, *input_node, arc_inputs);
-                num_nodes_remaining -= 1;
             };
         }
 
-        // Maps each node in recipe.runs to the number of inputs it has.
-        // When this reaches 0, it means the node can be executed.
-        let mut num_node_inputs: HashMap<usize, usize> = recipe.runs.iter().map(
-            |index| {
-                match self.node_inputs.get(*index) {
-                    Some(inputs) => (index.clone(), inputs.len()),
-                    None => panic!("Node {} is specified in recipe, but does not exist in the graph", index),
-                }
-            }
-        ).collect();
-
-        // Keep going until everything has been executed.
+        // Keep going until everything has finished executing.
         while num_nodes_remaining > 0 {
             // Currently there is only one valid WorkerStatus.
             if let Ok(WorkerStatus::Complete(node, result, node_id)) = self.pool.wstatus_receiver.recv() {
+                num_nodes_remaining -= 1;
                 // Place the node back into the graph.
                 match self.nodes.get_mut(node_id) {
                     Some(node_option) => node_option.replace(node),
@@ -212,6 +212,8 @@ impl<Node: 'static, Data: 'static> Graph<Node, Data> where Node: ThreadExecute<D
                 };
 
                 // Store the intermediate output.
+                // DEBUG:
+                println!("Node {} returned output {:?}", node_id, result);
                 match intermediates.insert(node_id, Arc::new(result)) {
                     Some(_) => panic!("Node {} was executed more than once, possibly due to a cycle", node_id),
                     None => (),
@@ -224,10 +226,10 @@ impl<Node: 'static, Data: 'static> Graph<Node, Data> where Node: ThreadExecute<D
                     // their input counts.
                     // It is ok for nodes to be missing in the recipe.
                     for output_id in output_ids {
-                        if let Some(num_inputs) = num_node_inputs.get_mut(output_id) {
-                            *num_inputs -= 1;
+                        if let Some(remaining_inputs) = node_inputs_map.get_mut(output_id) {
+                            remaining_inputs.remove(&node_id);
                             // If any hit 0, execute them.
-                            if *num_inputs == 0 {
+                            if remaining_inputs.len() == 0 {
                                 // Assemble the required inputs.
                                 let mut inputs: Vec<Arc<Data>> = Vec::new();
                                 match self.node_inputs.get(*output_id) {
@@ -242,7 +244,6 @@ impl<Node: 'static, Data: 'static> Graph<Node, Data> where Node: ThreadExecute<D
                                     None => panic!("Could not find node {}'s output {} in the graph", node_id, output_id)
                                 };
                                 execute_node(self, *output_id, inputs);
-                                num_nodes_remaining -= 1;
                             }
                         }
                     } // for output_id in output_ids
