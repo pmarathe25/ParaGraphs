@@ -1,6 +1,6 @@
 use crate::threadpool::{ThreadExecute, ThreadPool, WorkerStatus};
 use std::collections::{HashSet, HashMap};
-use std::iter::{FromIterator, Iterator};
+use std::iter::{FromIterator};
 use std::sync::Arc;
 // DEBUG: TODO: Remove
 use std::fmt::Debug;
@@ -67,7 +67,7 @@ mod tests {
     fn can_run_graph() {
         let (mut graph, input, _hidden1, _hidden2, output1, output2) = build_diamond_graph();
         println!("Graph: {:?}", graph);
-        let recipe = graph.compile(vec![output1, output2]);
+        let recipe = graph.compile(vec![output1, output2, output2]);
         println!("Recipe: {:?}", recipe);
         let inputs_map = HashMap::from_iter(vec!(
             (input, vec![1, 2, 3])
@@ -84,7 +84,7 @@ mod tests {
 #[derive(Debug)]
 pub struct Recipe {
     runs: HashSet<usize>,
-    inputs: Vec<usize>,
+    pub inputs: Vec<usize>,
     outputs: Vec<usize>,
     // Maps every node in runs to any outputs in the Recipe.
     node_outputs: HashMap<usize, HashSet<usize>>,
@@ -132,11 +132,13 @@ impl<Node: 'static, Data: 'static> Graph<Node, Data> where Node: ThreadExecute<D
         return node_id;
     }
 
-    pub fn compile(&self, mut fetches: Vec<usize>) -> Recipe {
+    pub fn compile(&self, fetches: impl IntoIterator<Item=usize>) -> Recipe {
         let mut index = 0;
         let mut recipe_inputs = Vec::new();
         let mut node_outputs: HashMap<usize, HashSet<usize>> = HashMap::new();
         // Remove unecessary duplicates, and then store as recipe_outputs.
+        let mut fetches: Vec<usize> = fetches.into_iter().collect();
+        fetches.sort_unstable();
         fetches.dedup();
         let recipe_outputs = fetches.clone();
         // Walk over fetches, and append the inputs of each node in it to the end of the vector.
