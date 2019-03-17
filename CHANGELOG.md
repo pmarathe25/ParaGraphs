@@ -1,6 +1,9 @@
 # ParaGraphs - Parallel Graph Execution Library
 **NOTE**: Dates are in dd-mm-yyy format.
 
+## v0.1.1 (16-03-2019)
+- lib.rs now exports Graph and ThreadExecute.
+
 ## v0.1.0 (16-03-2019)
 - Nodes now also receive a container of Edges as an input when they execute. This means that Nodes can depend on the outputs of previous nodes.
 - Renames Edge to Data for clarity.

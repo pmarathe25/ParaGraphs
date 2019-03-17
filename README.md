@@ -1,9 +1,11 @@
 # ParaGraphs - Parallel Graph Execution Library
 
+**Under Construction**
 
 # Understanding ParaGraphs
 
 ## The ThreadPool
+
 The `ThreadPool` manages one or more `Worker`s. Each `Worker` is responsible for managing a
 single thread. `Node`s, the units of execution, are *moved* into Worker threads over an
 `mpsc::Channel`, and returned over a second channel when execution completes. It is the
@@ -21,3 +23,5 @@ it immediately begins execution. Upon completion, the `Worker` sends a message o
 with the `Node`, its output (`Data`) as well the unique identifier (`usize`) for the `Job`.
 
 ## Graph
+
+**Under Construction**
