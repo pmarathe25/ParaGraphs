@@ -10,6 +10,7 @@
 - Adds compile, which builds a Recipe, given a Vec of node indices to fetch from the graph.
 - Adds run which executes the Graph using the ThreadPool.
 - Adds handling for cases where an input is specified more than once for a node.
+- Run function now returns the results of the output nodes in a HashMap.
 
 ## v0.0.1 (11-03-2019)
 - Makes ThreadPool generic over an Edge type. This can be used for inter-node communication. For now, the whole graph must use the same Edge type.
