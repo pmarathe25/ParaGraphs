@@ -119,6 +119,7 @@ pub(crate) enum WorkerStatus<Node, Data> where Node: ThreadExecute<Data>, Data: 
 }
 
 // Worker manages a single thread. It can receive Jobs via the associated mpsc::Receiver.
+#[derive(Debug)]
 struct Worker {
     #[allow(dead_code)]
     id: usize,
@@ -143,7 +144,7 @@ impl Worker {
                         // for ease-of-use in the public API. This should be fairly
                         // light-weight, as it just dereferences the Arcs.
                         // TODO: If this turns out not to be light-weight, need to use
-                        // Arcs in the public API.
+                        // Arcs in the public ThreadExecute API.
                         let deref_inputs;
                         unsafe {
                             deref_inputs = inputs.into_iter().map(
@@ -170,6 +171,7 @@ impl Worker {
 // The ThreadPool tracks a group of workers. When a new Executable is received, it is moved into
 // a worker where it is executed. Afterwards, it can be moved back by listening on
 // the wstatus_receiver.
+#[derive(Debug)]
 pub(crate) struct ThreadPool<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
     workers: Vec<Worker>,
     node_sender: mpsc::Sender<Message<Node, Data>>,

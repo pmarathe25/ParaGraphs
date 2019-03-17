@@ -7,6 +7,7 @@
 - Renames Execute to ThreadExecute. Additionally, ThreadExecute implies Send.
 - Inputs to nodes are now Vec<Arc<Data>> so that Data does not need to be copied for multiple outputs.
 - Adds the concept of Recipes, which specify all the nodes that need to be run to get the desired output.
+- Adds compile, which builds a Recipe, given a Vec of node indices to fetch from the graph.
 
 ## v0.0.1 (11-03-2019)
 - Makes ThreadPool generic over an Edge type. This can be used for inter-node communication. For now, the whole graph must use the same Edge type.
