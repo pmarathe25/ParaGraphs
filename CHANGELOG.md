@@ -1,5 +1,5 @@
 # ParaGraphs - Parallel Graph Execution Library
-**NOTE**: Dates are in dd-mm-yyy format.
+**NOTE**: Dates are in dd-mm-yyyy format.
 
 ## v0.2.0 (17-03-2019)
 - The execute function now returns an Option, so that the graph is aware when a node has failed.

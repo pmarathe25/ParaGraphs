@@ -104,7 +104,7 @@ mod tests {
 pub struct Recipe {
     runs: HashSet<usize>,
     pub inputs: Vec<usize>,
-    outputs: Vec<usize>,
+    pub outputs: Vec<usize>,
     // Maps every node in runs to any outputs in the Recipe.
     node_outputs: HashMap<usize, HashSet<usize>>,
 }
@@ -121,7 +121,7 @@ impl Recipe {
 #[derive(Debug)]
 pub struct Graph<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
     // This needs to be an option so that we can take() from it.
-    nodes: Vec<Option<Node>>,
+    pub nodes: Vec<Option<Node>>,
     node_inputs: Vec<Vec<usize>>,
     pool: ThreadPool<Node, Data>,
 }
