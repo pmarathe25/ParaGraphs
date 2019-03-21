@@ -138,8 +138,8 @@ impl<Node: 'static, Data: 'static> Graph<Node, Data> where Node: ThreadExecute<D
     // Returns the index of the newly added node.
     pub fn add<Container, Elem>(&mut self, node: Node, inputs: Container) -> usize where Container: IntoIterator<Item=Elem>, Elem: Borrow<usize> {
         let node_id = self.nodes.len();
-        // Push at the end, so that the above will fail if this node is an input to itself.
         self.nodes.push(Some(node));
+        // Push inputs at the end, so that the above will fail if this node is an input to itself.
         let inputs = inputs.into_iter().map(|x| x.borrow().clone()).collect();
         for &input in &inputs {
             if input >= node_id {
