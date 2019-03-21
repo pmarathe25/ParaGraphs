@@ -8,11 +8,13 @@ pub(crate) mod tests {
 
     // Adds two numbers together.
     #[derive(Debug, Clone)]
-    pub(crate) struct Adder {}
+    pub(crate) struct Adder {
+        pub(crate) valid: bool,
+    }
 
     impl Adder {
         pub(crate) fn new() -> Adder {
-            return Adder{};
+            return Adder{valid: true};
         }
     }
 

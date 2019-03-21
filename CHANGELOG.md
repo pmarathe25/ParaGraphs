@@ -1,23 +1,27 @@
 # ParaGraphs - Parallel Graph Execution Library
 **NOTE**: Dates are in dd-mm-yyyy format.
 
+## v0.2.1 (20-03-2019)
+- Makes `Recipe` outputs public.
+- Adds `IntoIterator` for `Graph`, so nodes are now easily iterable.
+
 ## v0.2.0 (17-03-2019)
-- The execute function now returns an Option, so that the graph is aware when a node has failed.
+- The execute function now returns an `Option`, so that the graph is aware when a node has failed.
 
 ## v0.1.1 (16-03-2019)
-- lib.rs now exports Graph and ThreadExecute.
+- lib.rs now exports `Graph` and `ThreadExecute`.
 
 ## v0.1.0 (16-03-2019)
-- Nodes now also receive a container of Edges as an input when they execute. This means that Nodes can depend on the outputs of previous nodes.
-- Renames Edge to Data for clarity.
-- Renames Execute to ThreadExecute. Additionally, ThreadExecute implies Send.
-- Inputs to nodes are now Vec<Arc<Data>> so that Data does not need to be copied for multiple outputs.
+- Nodes now also receive a container of `Edge`s as an input when they execute. This means that `Node`s can depend on the outputs of previous nodes.
+- Renames `Edge` to `Data` for clarity.
+- Renames `Execute` to `ThreadExecute`. Additionally, `ThreadExecute` implies `Send`.
+- Inputs to nodes are now `Vec<Arc<Data>>` so that `Data` does not need to be copied for multiple outputs.
 - Adds the concept of Recipes, which specify all the nodes that need to be run to get the desired output.
-- Adds compile, which builds a Recipe, given a Vec of node indices to fetch from the graph.
-- Adds run which executes the Graph using the ThreadPool.
+- Adds compile, which builds a `Recipe`, given a Vec of node indices to fetch from the graph.
+- Adds run which executes the `Graph` using the `ThreadPool`.
 - Adds handling for cases where an input is specified more than once for a node.
-- Run function now returns the results of the output nodes in a HashMap.
+- Run function now returns the results of the output nodes in a `HashMap`.
 
 ## v0.0.1 (11-03-2019)
-- Makes ThreadPool generic over an Edge type. This can be used for inter-node communication. For now, the whole graph must use the same Edge type.
-- Makes ThreadPool generic over Node types as well. Nodes do not need to be stateful (though they can be), as the execute function now returns an Edge.
+- Makes `ThreadPool` generic over an `Edge` type. This can be used for inter-node communication. For now, the whole graph must use the same `Edge` type.
+- Makes `ThreadPool` generic over `Node` types as well. Nodes do not need to be stateful (though they can be), as the execute function now returns an `Edge`.

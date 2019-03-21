@@ -96,6 +96,42 @@ mod tests {
         inputs_map.insert(input, vec!());
         let _ = graph.run(&recipe, inputs_map);
     }
+
+    #[test]
+    fn can_iterate_graph_nodes() {
+        let graph = build_diamond_graph().0;
+        let mut num_nodes = 0;
+        let expected_num_nodes = graph.len();
+        for node in graph {
+            assert!(node.valid);
+            num_nodes += 1;
+        }
+        assert_eq!(num_nodes, expected_num_nodes);
+    }
+
+    #[test]
+    fn can_iterate_ref_graph_nodes() {
+        let graph = build_diamond_graph().0;
+        let mut num_nodes = 0;
+        let expected_num_nodes = graph.len();
+        for node in &graph {
+            assert!(node.valid);
+            num_nodes += 1;
+        }
+        assert_eq!(num_nodes, expected_num_nodes);
+    }
+
+    #[test]
+    fn can_iterate_ref_mut_graph_nodes() {
+        let mut graph = build_diamond_graph().0;
+        let mut num_nodes = 0;
+        let expected_num_nodes = graph.len();
+        for node in &mut graph {
+            assert!(node.valid);
+            num_nodes += 1;
+        }
+        assert_eq!(num_nodes, expected_num_nodes);
+    }
 }
 
 // A simple struct for specifying what nodes need to be run, and which of them are
@@ -121,15 +157,67 @@ impl Recipe {
 #[derive(Debug)]
 pub struct Graph<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
     // This needs to be an option so that we can take() from it.
-    pub nodes: Vec<Option<Node>>,
+    nodes: Vec<Option<Node>>,
     node_inputs: Vec<Vec<usize>>,
     pool: ThreadPool<Node, Data>,
 }
 
+// fn expect_node<Node>(node: Option<Node>) -> Node {
+//     return node.expect("Node has been moved out of the graph. Is the graph being executed?");
+// }
+
+impl<Node, Data> IntoIterator for Graph<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
+    type Item = Node;
+    type IntoIter = std::iter::Map<std::vec::IntoIter<std::option::Option<Node>>, fn(std::option::Option<Node>) -> Node>;
+
+
+    fn into_iter(self) -> Self::IntoIter {
+        fn expect_node<Node>(node: Option<Node>) -> Node {
+            return node.expect("Node has been moved out of the graph. Is the graph being executed?");
+        }
+        return self.nodes.into_iter().map(expect_node);
+    }
+}
+
+impl<'a, Node, Data> IntoIterator for &'a Graph<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
+    type Item = &'a Node;
+    // type IntoIter = GraphIterator<Node>;
+    type IntoIter = std::iter::Map<std::slice::Iter<'a, std::option::Option<Node>>, fn(&std::option::Option<Node>) -> &Node>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        fn expect_node<Node>(node: &Option<Node>) -> &Node {
+            return match node {
+                Some(n) => n,
+                None => panic!("Node has been moved out of the graph. Is the graph being executed?"),
+            };
+        }
+        return self.nodes.iter().map(expect_node);
+    }
+}
+
+impl<'a, Node, Data> IntoIterator for &'a mut Graph<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
+    type Item = &'a mut Node;
+    // type IntoIter = GraphIterator<Node>;
+    type IntoIter = std::iter::Map<std::slice::IterMut<'a, std::option::Option<Node>>, fn(&mut std::option::Option<Node>) -> &mut Node>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        fn expect_node<Node>(node: &mut Option<Node>) -> &mut Node {
+            return match node {
+                Some(n) => n,
+                None => panic!("Node has been moved out of the graph. Is the graph being executed?"),
+            };
+        }
+        return self.nodes.iter_mut().map(expect_node);
+    }
+}
 
 impl<Node: 'static, Data: 'static> Graph<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
     pub fn new(num_threads: usize) -> Graph<Node, Data> {
         return Graph{nodes: Vec::new(), node_inputs: Vec::new(), pool: ThreadPool::new(num_threads)};
+    }
+
+    pub fn len(&self) -> usize {
+        return self.nodes.len();
     }
 
     // Ensure that the graph is acyclic at an API level by not allowing inputs to
