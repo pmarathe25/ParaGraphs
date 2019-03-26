@@ -162,10 +162,6 @@ pub struct Graph<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync 
     pool: ThreadPool<Node, Data>,
 }
 
-// fn expect_node<Node>(node: Option<Node>) -> Node {
-//     return node.expect("Node has been moved out of the graph. Is the graph being executed?");
-// }
-
 impl<Node, Data> IntoIterator for Graph<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
     type Item = Node;
     type IntoIter = std::iter::Map<std::vec::IntoIter<std::option::Option<Node>>, fn(std::option::Option<Node>) -> Node>;
@@ -218,6 +214,21 @@ impl<Node: 'static, Data: 'static> Graph<Node, Data> where Node: ThreadExecute<D
 
     pub fn len(&self) -> usize {
         return self.nodes.len();
+    }
+
+    // Removes one level of Option nesting.
+    pub fn get(&self, index: usize) -> Option<&Node> {
+        if let Some(node) = self.nodes.get(index) {
+            return node.as_ref();
+        }
+        return None;
+    }
+
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut Node> {
+        if let Some(node) = self.nodes.get_mut(index) {
+            return node.as_mut();
+        }
+        return None;
     }
 
     // Ensure that the graph is acyclic at an API level by not allowing inputs to

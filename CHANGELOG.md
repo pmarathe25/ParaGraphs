@@ -1,6 +1,9 @@
 # ParaGraphs - Parallel Graph Execution Library
 **NOTE**: Dates are in dd-mm-yyyy format.
 
+## v0.2.2 (25-03-2019)
+- Adds `get` and `get_mut` functions in `Graph` that will do one level of Option unwrapping.
+
 ## v0.2.1 (20-03-2019)
 - Makes `Recipe` outputs public.
 - Adds `IntoIterator` for `Graph`, so nodes are now easily iterable.
