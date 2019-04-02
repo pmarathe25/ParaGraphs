@@ -11,6 +11,7 @@ mod tests {
     use super::Graph;
     use crate::threadpool::ThreadExecute;
     use crate::threadpool::tests::{Adder};
+    use std::sync::Arc;
 
     const NUM_THREADS: usize = 8;
 
@@ -54,13 +55,13 @@ mod tests {
         println!("Output 1 Recipe: {:?}", out1_recipe);
         // Check
         assert_eq!(out1_recipe.runs, HashSet::from_iter(vec![input, hidden1, hidden2, output1]));
-        assert_eq!(out1_recipe.inputs, vec![input]);
+        assert_eq!(out1_recipe.inputs, HashSet::from_iter([input].iter().cloned()));
         // Get recipe for the second output.
         let out2_recipe = graph.compile(vec![output2]);
         println!("Output 2 Recipe: {:?}", out2_recipe);
         // Check correctness.
         assert_eq!(out2_recipe.runs, HashSet::from_iter(vec![input, hidden1, hidden2, output2]));
-        assert_eq!(out2_recipe.inputs, vec![input]);
+        assert_eq!(out2_recipe.inputs, HashSet::from_iter([input].iter().cloned()));
     }
 
     #[test]
@@ -78,10 +79,57 @@ mod tests {
         assert_eq!(outputs.get(&output2), Some(&24));
     }
 
+        #[test]
+        fn can_run_graph_all_nodes_outputs() {
+            let (mut graph, input, _hidden1, _hidden2, output1, output2) = build_diamond_graph();
+            println!("Graph: {:?}", graph);
+            let recipe = graph.compile(vec![input, _hidden1, _hidden2, output1, output2, output2]);
+            println!("Recipe: {:?}", recipe);
+            let inputs_map = HashMap::from_iter(vec!(
+                (input, vec![1, 2, 3])
+            ));
+            println!("Input map: {:?}", inputs_map);
+            let outputs = graph.run(&recipe, inputs_map);
+            println!("Outputs: {:?}", outputs);
+            assert_eq!(outputs.get(&output1), Some(&24));
+            assert_eq!(outputs.get(&output2), Some(&24));
+        }
+
+        #[test]
+        fn can_run_graph_input_is_output() {
+            let (mut graph, input, _hidden1, _hidden2, _output1, _output2) = build_diamond_graph();
+            println!("Graph: {:?}", graph);
+            let recipe = graph.compile(vec![input]);
+            println!("Recipe: {:?}", recipe);
+            let inputs_map = HashMap::from_iter(vec!(
+                (input, vec![1, 2, 3])
+            ));
+            println!("Input map: {:?}", inputs_map);
+            let outputs = graph.run(&recipe, inputs_map);
+            println!("Outputs: {:?}", outputs);
+            assert_eq!(outputs.get(&input), Some(&6));
+        }
+
+        #[test]
+        fn can_run_graph_input_and_node() {
+            let (mut graph, input, hidden1, _hidden2, _output1, _output2) = build_diamond_graph();
+            println!("Graph: {:?}", graph);
+            let recipe = graph.compile(vec![input, hidden1]);
+            println!("Recipe: {:?}", recipe);
+            let inputs_map = HashMap::from_iter(vec!(
+                (input, vec![1, 2, 3])
+            ));
+            println!("Input map: {:?}", inputs_map);
+            let outputs = graph.run(&recipe, inputs_map);
+            println!("Outputs: {:?}", outputs);
+            assert_eq!(outputs.get(&hidden1), Some(&12));
+        }
+
+
     struct FailNode;
 
     impl ThreadExecute<i32> for FailNode {
-        fn execute(&mut self, _inputs: Vec<&i32>) -> Option<i32> {
+        fn execute(&mut self, _inputs: Vec<Arc<i32>>) -> Option<i32> {
             return None;
         }
     }
@@ -134,19 +182,22 @@ mod tests {
     }
 }
 
-// A simple struct for specifying what nodes need to be run, and which of them are
-// graph inputs/outputs. This struct also allocates space for storing intermediate outputs.
+/// Describes a recipe for retrieving a particular set of outputs.
 #[derive(Debug)]
 pub struct Recipe {
     runs: HashSet<usize>,
-    pub inputs: Vec<usize>,
-    pub outputs: Vec<usize>,
+    /// The inputs of this recipe, represented by their indices in the graph.
+    /// These must be provided at graph execution time.
+    pub inputs: HashSet<usize>,
+    /// The outputs of this recipe, represented by their indices in the graph.
+    /// These will be returned after graph execution.
+    pub outputs: HashSet<usize>,
     // Maps every node in runs to any outputs in the Recipe.
     node_outputs: HashMap<usize, HashSet<usize>>,
 }
 
 impl Recipe {
-    fn new(runs: HashSet<usize>, inputs: Vec<usize>, outputs: Vec<usize>, node_outputs: HashMap<usize, HashSet<usize>>) -> Recipe {
+    fn new(runs: HashSet<usize>, inputs: HashSet<usize>, outputs: HashSet<usize>, node_outputs: HashMap<usize, HashSet<usize>>) -> Recipe {
         if inputs.len() == 0 {
             panic!("Invalid Recipe: Found 0 inputs. Recipes must have at least one input node.");
         }
@@ -154,6 +205,10 @@ impl Recipe {
     }
 }
 
+/// A computation graph.
+/// Nodes are executed eagerly, and concurrently wherever possible.
+/// Each graph manages its own threadpool, so although it may be possible to creat
+/// higher-order graphs, it is generally not advisable.
 #[derive(Debug)]
 pub struct Graph<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
     // This needs to be an option so that we can take() from it.
@@ -208,15 +263,41 @@ impl<'a, Node, Data> IntoIterator for &'a mut Graph<Node, Data> where Node: Thre
 }
 
 impl<Node: 'static, Data: 'static> Graph<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
+
+    /// Creates a new graph.
+    ///
+    /// # Arguments
+    ///
+    /// * `num_threads` - The number of threads available to the graph.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use paragraphs::{Graph, ThreadExecute};
+    /// use std::sync::Arc;
+    /// struct MyNode;
+    /// struct MyData;
+    /// impl ThreadExecute<MyData> for MyNode {
+    ///     fn execute(&mut self, inputs: Vec<Arc<MyData>>) -> Option<MyData> {
+    ///         return Some(MyData{});
+    ///     }
+    /// }
+    /// let graph: Graph<MyNode, MyData> = Graph::new(8);
+    /// ```
     pub fn new(num_threads: usize) -> Graph<Node, Data> {
         return Graph{nodes: Vec::new(), node_inputs: Vec::new(), pool: ThreadPool::new(num_threads)};
     }
 
+    /// Returns the number of nodes in the graph.
     pub fn len(&self) -> usize {
         return self.nodes.len();
     }
 
-    // Removes one level of Option nesting.
+    /// Gets an Option containing a reference to the node at the specified index.
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - The index of the node.
     pub fn get(&self, index: usize) -> Option<&Node> {
         if let Some(node) = self.nodes.get(index) {
             return node.as_ref();
@@ -224,6 +305,11 @@ impl<Node: 'static, Data: 'static> Graph<Node, Data> where Node: ThreadExecute<D
         return None;
     }
 
+    /// Gets an Option containing a mutable referenece to the node at the specified index.
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - The index of the node.
     pub fn get_mut(&mut self, index: usize) -> Option<&mut Node> {
         if let Some(node) = self.nodes.get_mut(index) {
             return node.as_mut();
@@ -231,10 +317,31 @@ impl<Node: 'static, Data: 'static> Graph<Node, Data> where Node: ThreadExecute<D
         return None;
     }
 
-    // Ensure that the graph is acyclic at an API level by not allowing inputs to
-    // be set after the node is first added. Additionally, all inputs must already be in
-    // the graph, or this function panics.
-    // Returns the index of the newly added node.
+    /// Adds a new node to the graph.
+    ///
+    /// # Arguments
+    ///
+    /// * `node` - The node to add to the graph.
+    /// * `inputs` - The indices of the inputs to the node. All inputs specified must
+    ///             already be present in the graph, or the function panics.
+    ///             Inputs may be specified more than once.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use paragraphs::{Graph, ThreadExecute};
+    /// use std::sync::Arc;
+    /// struct MyNode;
+    /// struct MyData;
+    /// impl ThreadExecute<MyData> for MyNode {
+    ///     fn execute(&mut self, inputs: Vec<Arc<MyData>>) -> Option<MyData> {
+    ///         return Some(MyData{});
+    ///     }
+    /// }
+    /// let mut graph = Graph::new(8);
+    /// let node0 = graph.add(MyNode{}, &[]);
+    /// let node1 = graph.add(MyNode{}, &[node0, node0]);
+    /// ```
     pub fn add<Container, Elem>(&mut self, node: Node, inputs: Container) -> usize where Container: IntoIterator<Item=Elem>, Elem: Borrow<usize> {
         let node_id = self.nodes.len();
         self.nodes.push(Some(node));
@@ -249,17 +356,38 @@ impl<Node: 'static, Data: 'static> Graph<Node, Data> where Node: ThreadExecute<D
         return node_id;
     }
 
-    // TODO: Documentation
+    /// Generates a Recipe that can be used to compute the specified outputs.
+    ///
+    /// # Arguments
+    ///
+    /// * `fetches` - The indices of the nodes to fetch. May contain duplicates.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use paragraphs::{Graph, ThreadExecute};
+    /// use std::sync::Arc;
+    /// struct MyNode;
+    /// struct MyData;
+    /// impl ThreadExecute<MyData> for MyNode {
+    ///     fn execute(&mut self, inputs: Vec<Arc<MyData>>) -> Option<MyData> {
+    ///         return Some(MyData{});
+    ///     }
+    /// }
+    /// let mut graph = Graph::new(8);
+    /// let node0 = graph.add(MyNode{}, &[]);
+    /// let node1 = graph.add(MyNode{}, &[node0, node0]);
+    /// // This recipe can be used to fetch the result of node1.
+    /// let node1_recipe = graph.compile(&[node1]);
+    /// ```
     pub fn compile<Container, Elem>(&self, fetches: Container) -> Recipe
         where Container: IntoIterator<Item=Elem>, Elem: Borrow<usize> {
         let mut index = 0;
-        let mut recipe_inputs = Vec::new();
+        let mut recipe_inputs = HashSet::new();
         let mut node_outputs: HashMap<usize, HashSet<usize>> = HashMap::new();
         // Remove unecessary duplicates, and then store as recipe_outputs.
         let mut fetches: Vec<usize> = fetches.into_iter().map(|x| x.borrow().clone()).collect();
-        fetches.sort_unstable();
-        fetches.dedup();
-        let recipe_outputs = fetches.clone();
+        let recipe_outputs = HashSet::from_iter(fetches.iter().cloned());
         // Walk over fetches, and append the inputs of each node in it to the end of the vector.
         // This is a BFS for finding all nodes that need to be executed.
         while index < fetches.len() {
@@ -269,7 +397,7 @@ impl<Node: 'static, Data: 'static> Graph<Node, Data> where Node: ThreadExecute<D
                 &format!("Could not get node inputs for node {}", node_id));
             // Nodes with no inputs ARE inputs.
             if inputs.len() == 0 {
-                recipe_inputs.push(*node_id);
+                recipe_inputs.insert(*node_id);
             }
             for input in inputs {
                 match node_outputs.get_mut(input) {
@@ -284,7 +412,6 @@ impl<Node: 'static, Data: 'static> Graph<Node, Data> where Node: ThreadExecute<D
             fetches.extend(inputs);
             index += 1;
         }
-        recipe_inputs.dedup();
         return Recipe::new(HashSet::from_iter(fetches), recipe_inputs, recipe_outputs, node_outputs);
     }
 
@@ -318,6 +445,7 @@ impl<Node: 'static, Data: 'static> Graph<Node, Data> where Node: ThreadExecute<D
         let mut intermediates: HashMap<usize, Arc<Data>> = HashMap::with_capacity(num_nodes_remaining);
         // Maps each node in recipe.runs to its inputs. When there are no inputs remaining,
         // it means the node can be executed.
+        // TODO: Move this into `compile`.
         let mut remaining_inputs_map: HashMap<usize, HashSet<usize>> = recipe.runs.iter().map(
             |index| {
                 match self.node_inputs.get(*index) {

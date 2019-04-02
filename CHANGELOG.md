@@ -1,6 +1,11 @@
 # ParaGraphs - Parallel Graph Execution Library
 **NOTE**: Dates are in dd-mm-yyyy format.
 
+## vNext ()
+- Changes `execute` to use `Vec<Arc<Data>>` because intermediate outputs were not being reference counted correctly.
+- Recipe inputs/outputs are now `HashSet`s to prevent superfluous duplicates.
+- Adds several docstrings.
+
 ## v0.2.2 (25-03-2019)
 - Adds `get` and `get_mut` functions in `Graph` that will do one level of Option unwrapping.
 

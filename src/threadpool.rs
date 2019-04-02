@@ -19,7 +19,7 @@ pub(crate) mod tests {
     }
 
     impl ThreadExecute<i32> for Adder {
-        fn execute(&mut self, inputs: Vec<&i32>) -> Option<i32> {
+        fn execute(&mut self, inputs: Vec<Arc<i32>>) -> Option<i32> {
             let mut sum = 0;
             for inp in inputs {
                 sum += *inp;
@@ -102,7 +102,7 @@ pub(crate) mod tests {
 // Any job to be executed by this ThreadPool must be ThreadExecute.
 // TODO: Docstring here - mention that this function should not panic.
 pub trait ThreadExecute<Data> : Send where Data: Send + Sync {
-    fn execute(&mut self, inputs: Vec<&Data>) -> Option<Data>;
+    fn execute(&mut self, inputs: Vec<Arc<Data>>) -> Option<Data>;
 }
 
 // Messages are sent from the ThreadPool to each worker.
@@ -146,18 +146,8 @@ impl Worker {
                 let message = node_receiver.lock().unwrap().recv().unwrap();
                 match message {
                     Message::Job(mut node, inputs, job_id) => {
-                        // Consume the vector of Arcs, and create a vector of references,
-                        // for ease-of-use in the public API. This should be fairly
-                        // light-weight, as it just dereferences the Arcs.
-                        // TODO: If this turns out not to be light-weight, need to use
-                        // Arcs in the public ThreadExecute API.
-                        let deref_inputs;
-                        unsafe {
-                            deref_inputs = inputs.into_iter().map(
-                                |inp| &*Arc::into_raw(inp)).collect();
-                        }
-                        let result = node.execute(deref_inputs);
-                        let wstatus : WorkerStatus<Node, Data>;
+                        let result = node.execute(inputs);
+                        let wstatus;
                         match result {
                             Some(output) => wstatus = WorkerStatus::Complete(node, output, job_id),
                             None => wstatus = WorkerStatus::Fail(id),
@@ -186,11 +176,11 @@ impl Worker {
 pub(crate) struct ThreadPool<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
     workers: Vec<Worker>,
     node_sender: mpsc::Sender<Message<Node, Data>>,
-    pub wstatus_receiver: mpsc::Receiver<WorkerStatus<Node, Data>>,
+    pub(crate) wstatus_receiver: mpsc::Receiver<WorkerStatus<Node, Data>>,
 }
 
 impl<Node: 'static, Data: 'static> ThreadPool<Node, Data> where Node: ThreadExecute<Data>, Data: Send + Sync {
-    pub fn new(num_workers: usize) -> ThreadPool<Node, Data> {
+    pub(crate) fn new(num_workers: usize) -> ThreadPool<Node, Data> {
         assert!(num_workers > 0);
         let (node_sender, node_receiver) = mpsc::channel();
         let node_receiver = Arc::new(Mutex::new(node_receiver));
@@ -205,8 +195,8 @@ impl<Node: 'static, Data: 'static> ThreadPool<Node, Data> where Node: ThreadExec
         return ThreadPool{workers: workers, node_sender: node_sender, wstatus_receiver: wstatus_receiver};
     }
 
-    /// Executes the provided node with the provided inputs.
-    pub fn execute(&self, node: Node, inputs: Vec<Arc<Data>>, id: usize) {
+    // Executes the provided node with the provided inputs.
+    pub(crate) fn execute(&self, node: Node, inputs: Vec<Arc<Data>>, id: usize) {
         self.node_sender.send(Message::Job(node, inputs, id)).unwrap();
     }
 }
