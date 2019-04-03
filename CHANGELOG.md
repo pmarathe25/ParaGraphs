@@ -4,6 +4,7 @@
 ## vNext ()
 - Changes `execute` to use `Vec<Arc<Data>>` because intermediate outputs were not being reference counted correctly.
 - Recipe inputs/outputs are now `HashSet`s to prevent superfluous duplicates.
+- `compile` now generates `node_inputs`, instead of `run`.
 - Adds several docstrings.
 
 ## v0.2.2 (25-03-2019)

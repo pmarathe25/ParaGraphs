@@ -186,22 +186,24 @@ mod tests {
 #[derive(Debug)]
 pub struct Recipe {
     runs: HashSet<usize>,
-    /// The inputs of this recipe, represented by their indices in the graph.
-    /// These must be provided at graph execution time.
+    /// The graph indices of the inputs of this recipe.
+    /// Values for each of these must be provided at graph execution time.
     pub inputs: HashSet<usize>,
-    /// The outputs of this recipe, represented by their indices in the graph.
-    /// These will be returned after graph execution.
+    /// The graph indices of the outputs of this recipe.
+    /// Values for each of these will be returned after graph execution.
     pub outputs: HashSet<usize>,
     // Maps every node in runs to any outputs in the Recipe.
     node_outputs: HashMap<usize, HashSet<usize>>,
+    // Maps every node in runs to its inputs, which must be in the Recipe.
+    node_inputs: HashMap<usize, HashSet<usize>>,
 }
 
 impl Recipe {
-    fn new(runs: HashSet<usize>, inputs: HashSet<usize>, outputs: HashSet<usize>, node_outputs: HashMap<usize, HashSet<usize>>) -> Recipe {
+    fn new(runs: HashSet<usize>, inputs: HashSet<usize>, outputs: HashSet<usize>, node_outputs: HashMap<usize, HashSet<usize>>, node_inputs: HashMap<usize, HashSet<usize>>) -> Recipe {
         if inputs.len() == 0 {
             panic!("Invalid Recipe: Found 0 inputs. Recipes must have at least one input node.");
         }
-        return Recipe{runs: runs, inputs: inputs, outputs: outputs, node_outputs: node_outputs};
+        return Recipe{runs: runs, inputs: inputs, outputs: outputs, node_outputs: node_outputs, node_inputs: node_inputs};
     }
 }
 
@@ -275,13 +277,16 @@ impl<Node: 'static, Data: 'static> Graph<Node, Data> where Node: ThreadExecute<D
     /// ```
     /// use paragraphs::{Graph, ThreadExecute};
     /// use std::sync::Arc;
+    ///
     /// struct MyNode;
     /// struct MyData;
+    ///
     /// impl ThreadExecute<MyData> for MyNode {
     ///     fn execute(&mut self, inputs: Vec<Arc<MyData>>) -> Option<MyData> {
     ///         return Some(MyData{});
     ///     }
     /// }
+    ///
     /// let graph: Graph<MyNode, MyData> = Graph::new(8);
     /// ```
     pub fn new(num_threads: usize) -> Graph<Node, Data> {
@@ -329,15 +334,16 @@ impl<Node: 'static, Data: 'static> Graph<Node, Data> where Node: ThreadExecute<D
     /// # Example
     ///
     /// ```
-    /// use paragraphs::{Graph, ThreadExecute};
-    /// use std::sync::Arc;
-    /// struct MyNode;
-    /// struct MyData;
-    /// impl ThreadExecute<MyData> for MyNode {
-    ///     fn execute(&mut self, inputs: Vec<Arc<MyData>>) -> Option<MyData> {
-    ///         return Some(MyData{});
-    ///     }
-    /// }
+    /// use paragraphs::Graph;
+    /// # use paragraphs::ThreadExecute;
+    /// # use std::sync::Arc;
+    /// # struct MyNode;
+    /// # struct MyData;
+    /// # impl ThreadExecute<MyData> for MyNode {
+    /// #     fn execute(&mut self, inputs: Vec<Arc<MyData>>) -> Option<MyData> {
+    /// #         return Some(MyData{});
+    /// #     }
+    /// # }
     /// let mut graph = Graph::new(8);
     /// let node0 = graph.add(MyNode{}, &[]);
     /// let node1 = graph.add(MyNode{}, &[node0, node0]);
@@ -361,22 +367,23 @@ impl<Node: 'static, Data: 'static> Graph<Node, Data> where Node: ThreadExecute<D
     /// # Arguments
     ///
     /// * `fetches` - The indices of the nodes to fetch. May contain duplicates.
+    ///             Panics if no nodes are specified.
     ///
     /// # Example
     ///
     /// ```
-    /// use paragraphs::{Graph, ThreadExecute};
-    /// use std::sync::Arc;
-    /// struct MyNode;
-    /// struct MyData;
-    /// impl ThreadExecute<MyData> for MyNode {
-    ///     fn execute(&mut self, inputs: Vec<Arc<MyData>>) -> Option<MyData> {
-    ///         return Some(MyData{});
-    ///     }
-    /// }
-    /// let mut graph = Graph::new(8);
-    /// let node0 = graph.add(MyNode{}, &[]);
-    /// let node1 = graph.add(MyNode{}, &[node0, node0]);
+    /// # use paragraphs::{Graph, ThreadExecute};
+    /// # use std::sync::Arc;
+    /// # struct MyNode;
+    /// # struct MyData;
+    /// # impl ThreadExecute<MyData> for MyNode {
+    /// #     fn execute(&mut self, inputs: Vec<Arc<MyData>>) -> Option<MyData> {
+    /// #         return Some(MyData{});
+    /// #     }
+    /// # }
+    /// # let mut graph = Graph::new(8);
+    /// # let node0 = graph.add(MyNode{}, &[]);
+    /// # let node1 = graph.add(MyNode{}, &[node0, node0]);
     /// // This recipe can be used to fetch the result of node1.
     /// let node1_recipe = graph.compile(&[node1]);
     /// ```
@@ -385,6 +392,7 @@ impl<Node: 'static, Data: 'static> Graph<Node, Data> where Node: ThreadExecute<D
         let mut index = 0;
         let mut recipe_inputs = HashSet::new();
         let mut node_outputs: HashMap<usize, HashSet<usize>> = HashMap::new();
+        let mut node_inputs: HashMap<usize, HashSet<usize>> = HashMap::new();
         // Remove unecessary duplicates, and then store as recipe_outputs.
         let mut fetches: Vec<usize> = fetches.into_iter().map(|x| x.borrow().clone()).collect();
         let recipe_outputs = HashSet::from_iter(fetches.iter().cloned());
@@ -399,6 +407,9 @@ impl<Node: 'static, Data: 'static> Graph<Node, Data> where Node: ThreadExecute<D
             if inputs.len() == 0 {
                 recipe_inputs.insert(*node_id);
             }
+            // Add node inputs.
+            node_inputs.insert(*node_id, inputs.iter().cloned().collect());
+            // Add node outputs.
             for input in inputs {
                 match node_outputs.get_mut(input) {
                     // If this node is already in the map, then append the output to it.
@@ -412,12 +423,41 @@ impl<Node: 'static, Data: 'static> Graph<Node, Data> where Node: ThreadExecute<D
             fetches.extend(inputs);
             index += 1;
         }
-        return Recipe::new(HashSet::from_iter(fetches), recipe_inputs, recipe_outputs, node_outputs);
+        return Recipe::new(HashSet::from_iter(fetches), recipe_inputs, recipe_outputs, node_outputs, node_inputs);
     }
 
     // Runs the provided Recipe with the provded inputs (map of {node: inputs}).
     // If inputs are missing, panics.
     // TODO: Document all panic conditions.
+    /// Executes the nodes specified by the recipe using the provided inputs.
+    ///
+    /// # Arguments
+    ///
+    /// * `recipe` - The recipe to execute. All outputs of the recipe are fetched.
+    /// * `inputs_map` - Inputs for each input node. Panics if inputs are missing.
+    /// # Example
+    ///
+    /// ```
+    /// # use paragraphs::{Graph, ThreadExecute};
+    /// # use std::sync::Arc;
+    /// use std::collections::HashMap;
+    /// use std::iter::FromIterator;
+    /// # struct MyNode;
+    /// # struct MyData;
+    /// # impl ThreadExecute<MyData> for MyNode {
+    /// #     fn execute(&mut self, inputs: Vec<Arc<MyData>>) -> Option<MyData> {
+    /// #         return Some(MyData{});
+    /// #     }
+    /// # }
+    /// # let mut graph = Graph::new(8);
+    /// # let node0 = graph.add(MyNode{}, &[]);
+    /// # let node1 = graph.add(MyNode{}, &[node0, node0]);
+    /// # let node1_recipe = graph.compile(&[node1]);
+    /// let inputs_map = HashMap::from_iter(vec!(
+    ///     (node0, vec![MyData{}]),
+    /// ));
+    /// let outputs = graph.run(&node1_recipe, inputs_map);
+    /// ```
     pub fn run(&mut self, recipe: &Recipe, mut inputs_map: HashMap<usize, Vec<Data>>) -> HashMap<usize, Data> {
         fn execute_node<Node: 'static, Data: 'static>(graph: &mut Graph<Node, Data>, node_id: usize, inputs: Vec<Arc<Data>>) where Node: ThreadExecute<Data>, Data: Send + Sync {
             let node = graph.nodes.get_mut(node_id).expect(
@@ -445,22 +485,17 @@ impl<Node: 'static, Data: 'static> Graph<Node, Data> where Node: ThreadExecute<D
         let mut intermediates: HashMap<usize, Arc<Data>> = HashMap::with_capacity(num_nodes_remaining);
         // Maps each node in recipe.runs to its inputs. When there are no inputs remaining,
         // it means the node can be executed.
-        // TODO: Move this into `compile`.
-        let mut remaining_inputs_map: HashMap<usize, HashSet<usize>> = recipe.runs.iter().map(
-            |index| {
-                match self.node_inputs.get(*index) {
-                    Some(inputs) => (index.clone(), inputs.iter().cloned().collect()),
-                    None => panic!("Node {} is specified in recipe, but does not exist in the graph", index),
-                }
-            }
-        ).collect();
+        let mut remaining_inputs_map = recipe.node_inputs.clone();
 
         // First, launch all input nodes.
         for input_node in &recipe.inputs {
-            if let Some(inputs) = inputs_map.remove(input_node) {
-                let arc_inputs: Vec<Arc<Data>> = inputs.into_iter().map(|input| Arc::new(input)).collect();
-                // Queue up every input node.
-                execute_node(self, *input_node, arc_inputs);
+            match inputs_map.remove(input_node) {
+                Some(inputs) => {
+                    let arc_inputs: Vec<Arc<Data>> = inputs.into_iter().map(|input| Arc::new(input)).collect();
+                    // Queue up every input node.
+                    execute_node(self, *input_node, arc_inputs);
+                },
+                None => panic!("Input for {} is missing", input_node),
             };
         }
 

@@ -99,9 +99,30 @@ pub(crate) mod tests {
     }
 }
 
-// Any job to be executed by this ThreadPool must be ThreadExecute.
-// TODO: Docstring here - mention that this function should not panic.
+// Any job to be executed by the ThreadPool must be ThreadExecute.
+/// A trait for the ability to be dispatched to and exectued on a separate thread.
 pub trait ThreadExecute<Data> : Send where Data: Send + Sync {
+
+    /// Executes with the provided inputs. This function must not panic, or chaos ensues.
+    /// Instead, upon error, the function should return None.
+    ///
+    /// # Arguments
+    ///
+    /// * `inputs` - The inputs to use, in order.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use paragraphs::ThreadExecute;
+    /// use std::sync::Arc;
+    /// struct Adder;
+    ///
+    /// impl ThreadExecute<i32> for Adder {
+    ///     fn execute(&mut self, inputs: Vec<Arc<i32>>) -> Option<i32> {
+    ///         return Some(inputs.into_iter().map(|x| *x).sum());
+    ///     }
+    /// }
+    /// ```
     fn execute(&mut self, inputs: Vec<Arc<Data>>) -> Option<Data>;
 }
 
