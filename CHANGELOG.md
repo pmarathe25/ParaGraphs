@@ -1,26 +1,26 @@
 # ParaGraphs - Parallel Graph Execution Library
-**NOTE**: Dates are in dd-mm-yyyy format.
+**NOTE**: Dates are in YYYY-MM-DD format.
 
-## vNext ()
+## v0.3.0 (2019-04-02)
 - Changes `execute` to use `Vec<Arc<Data>>` because intermediate outputs were not being reference counted correctly.
 - Recipe inputs/outputs are now `HashSet`s to prevent superfluous duplicates.
 - `compile` now generates `node_inputs`, instead of `run`.
 - Adds several docstrings.
 
-## v0.2.2 (25-03-2019)
+## v0.2.2 (2019-03-25)
 - Adds `get` and `get_mut` functions in `Graph` that will do one level of Option unwrapping.
 
-## v0.2.1 (20-03-2019)
+## v0.2.1 (2019-03-20)
 - Makes `Recipe` outputs public.
 - Adds `IntoIterator` for `Graph`, so nodes are now easily iterable.
 
-## v0.2.0 (17-03-2019)
+## v0.2.0 (2019-03-17)
 - The execute function now returns an `Option`, so that the graph is aware when a node has failed.
 
-## v0.1.1 (16-03-2019)
+## v0.1.1 (2019-03-16)
 - lib.rs now exports `Graph` and `ThreadExecute`.
 
-## v0.1.0 (16-03-2019)
+## v0.1.0 (2019-03-16)
 - Nodes now also receive a container of `Edge`s as an input when they execute. This means that `Node`s can depend on the outputs of previous nodes.
 - Renames `Edge` to `Data` for clarity.
 - Renames `Execute` to `ThreadExecute`. Additionally, `ThreadExecute` implies `Send`.
@@ -31,6 +31,6 @@
 - Adds handling for cases where an input is specified more than once for a node.
 - Run function now returns the results of the output nodes in a `HashMap`.
 
-## v0.0.1 (11-03-2019)
+## v0.0.1 (2019-03-11)
 - Makes `ThreadPool` generic over an `Edge` type. This can be used for inter-node communication. For now, the whole graph must use the same `Edge` type.
 - Makes `ThreadPool` generic over `Node` types as well. Nodes do not need to be stateful (though they can be), as the execute function now returns an `Edge`.
