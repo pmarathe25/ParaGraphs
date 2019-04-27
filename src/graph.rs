@@ -79,52 +79,51 @@ mod tests {
         assert_eq!(outputs.get(&output2), Some(&24));
     }
 
-        #[test]
-        fn can_run_graph_all_nodes_outputs() {
-            let (mut graph, input, _hidden1, _hidden2, output1, output2) = build_diamond_graph();
-            println!("Graph: {:?}", graph);
-            let recipe = graph.compile(vec![input, _hidden1, _hidden2, output1, output2, output2]);
-            println!("Recipe: {:?}", recipe);
-            let inputs_map = HashMap::from_iter(vec!(
-                (input, vec![1, 2, 3])
-            ));
-            println!("Input map: {:?}", inputs_map);
-            let outputs = graph.run(&recipe, inputs_map);
-            println!("Outputs: {:?}", outputs);
-            assert_eq!(outputs.get(&output1), Some(&24));
-            assert_eq!(outputs.get(&output2), Some(&24));
-        }
+    #[test]
+    fn can_run_graph_all_nodes_outputs() {
+        let (mut graph, input, _hidden1, _hidden2, output1, output2) = build_diamond_graph();
+        println!("Graph: {:?}", graph);
+        let recipe = graph.compile(vec![input, _hidden1, _hidden2, output1, output2, output2]);
+        println!("Recipe: {:?}", recipe);
+        let inputs_map = HashMap::from_iter(vec!(
+            (input, vec![1, 2, 3])
+        ));
+        println!("Input map: {:?}", inputs_map);
+        let outputs = graph.run(&recipe, inputs_map);
+        println!("Outputs: {:?}", outputs);
+        assert_eq!(outputs.get(&output1), Some(&24));
+        assert_eq!(outputs.get(&output2), Some(&24));
+    }
 
-        #[test]
-        fn can_run_graph_input_is_output() {
-            let (mut graph, input, _hidden1, _hidden2, _output1, _output2) = build_diamond_graph();
-            println!("Graph: {:?}", graph);
-            let recipe = graph.compile(vec![input]);
-            println!("Recipe: {:?}", recipe);
-            let inputs_map = HashMap::from_iter(vec!(
-                (input, vec![1, 2, 3])
-            ));
-            println!("Input map: {:?}", inputs_map);
-            let outputs = graph.run(&recipe, inputs_map);
-            println!("Outputs: {:?}", outputs);
-            assert_eq!(outputs.get(&input), Some(&6));
-        }
+    #[test]
+    fn can_run_graph_input_is_output() {
+        let (mut graph, input, _hidden1, _hidden2, _output1, _output2) = build_diamond_graph();
+        println!("Graph: {:?}", graph);
+        let recipe = graph.compile(vec![input]);
+        println!("Recipe: {:?}", recipe);
+        let inputs_map = HashMap::from_iter(vec!(
+            (input, vec![1, 2, 3])
+        ));
+        println!("Input map: {:?}", inputs_map);
+        let outputs = graph.run(&recipe, inputs_map);
+        println!("Outputs: {:?}", outputs);
+        assert_eq!(outputs.get(&input), Some(&6));
+    }
 
-        #[test]
-        fn can_run_graph_input_and_node() {
-            let (mut graph, input, hidden1, _hidden2, _output1, _output2) = build_diamond_graph();
-            println!("Graph: {:?}", graph);
-            let recipe = graph.compile(vec![input, hidden1]);
-            println!("Recipe: {:?}", recipe);
-            let inputs_map = HashMap::from_iter(vec!(
-                (input, vec![1, 2, 3])
-            ));
-            println!("Input map: {:?}", inputs_map);
-            let outputs = graph.run(&recipe, inputs_map);
-            println!("Outputs: {:?}", outputs);
-            assert_eq!(outputs.get(&hidden1), Some(&12));
-        }
-
+    #[test]
+    fn can_run_graph_input_and_node() {
+        let (mut graph, input, hidden1, _hidden2, _output1, _output2) = build_diamond_graph();
+        println!("Graph: {:?}", graph);
+        let recipe = graph.compile(vec![input, hidden1]);
+        println!("Recipe: {:?}", recipe);
+        let inputs_map = HashMap::from_iter(vec!(
+            (input, vec![1, 2, 3])
+        ));
+        println!("Input map: {:?}", inputs_map);
+        let outputs = graph.run(&recipe, inputs_map);
+        println!("Outputs: {:?}", outputs);
+        assert_eq!(outputs.get(&hidden1), Some(&12));
+    }
 
     struct FailNode;
 
@@ -208,7 +207,7 @@ impl Recipe {
 }
 
 /// A computation graph.
-/// Nodes are executed eagerly, and concurrently wherever possible.
+/// Nodes are executed concurrently wherever possible.
 /// Each graph manages its own threadpool, so although it may be possible to creat
 /// higher-order graphs, it is generally not advisable.
 #[derive(Debug)]
@@ -399,10 +398,14 @@ impl<Node: 'static, Data: 'static> Graph<Node, Data> where Node: ThreadExecute<D
         // Walk over fetches, and append the inputs of each node in it to the end of the vector.
         // This is a BFS for finding all nodes that need to be executed.
         while index < fetches.len() {
-            let node_id = fetches.get(index).expect(
-                &format!("Could not get index {} index in fetches ({:?}) during BFS", index, fetches));
-            let inputs = self.node_inputs.get(*node_id).expect(
-                &format!("Could not get node inputs for node {}", node_id));
+            let node_id = match fetches.get(index) {
+                Some(id) => id,
+                None => panic!("Could not get index {} index in fetches ({:?}) during BFS", index, fetches),
+            };
+            let inputs = match self.node_inputs.get(*node_id) {
+                Some(id) => id,
+                None => panic!("Could not get node inputs for node {}", node_id),
+            };
             // Nodes with no inputs ARE inputs.
             if inputs.len() == 0 {
                 recipe_inputs.insert(*node_id);
@@ -460,20 +463,28 @@ impl<Node: 'static, Data: 'static> Graph<Node, Data> where Node: ThreadExecute<D
     /// ```
     pub fn run(&mut self, recipe: &Recipe, mut inputs_map: HashMap<usize, Vec<Data>>) -> HashMap<usize, Data> {
         fn execute_node<Node: 'static, Data: 'static>(graph: &mut Graph<Node, Data>, node_id: usize, inputs: Vec<Arc<Data>>) where Node: ThreadExecute<Data>, Data: Send + Sync {
-            let node = graph.nodes.get_mut(node_id).expect(
-                &format!("While attempting to execute, could not retrieve node {}", node_id)
-            ).take().expect(
-                &format!("Could not retrieve node {} - is it currently being executed?", node_id));
+            let node_opt = match graph.nodes.get_mut(node_id) {
+                Some(id) => id,
+                None => panic!("While attempting to execute, could not retrieve node {}", node_id)
+            };
+            let node = match node_opt.take() {
+                Some(node) => node,
+                None => panic!("Could not retrieve node {} - is it currently being executed?", node_id)
+            };
             graph.pool.execute(node, inputs, node_id);
         }
 
         fn assemble_inputs<Node, Data>(graph: &Graph<Node, Data>, intermediates: &HashMap<usize, Arc<Data>>, node_id: usize) -> Vec<Arc<Data>> where Node: ThreadExecute<Data>, Data: Send + Sync {
             let mut inputs: Vec<Arc<Data>> = Vec::new();
-            let input_ids = graph.node_inputs.get(node_id).expect(
-                &format!("Could not find node {} in the graph", node_id));
+            let input_ids = match graph.node_inputs.get(node_id) {
+                Some(id) => id,
+                None => panic!("Could not find node {} in the graph", node_id)
+            };
             for input_id in input_ids {
-                let intermediate = intermediates.get(input_id).expect(
-                    &format!("Node {} attempted to execute, but input {} is missing", node_id, input_id));
+                let intermediate = match intermediates.get(input_id) {
+                    Some(intermediate) => intermediate,
+                    None => panic!("Node {} attempted to execute, but input {} is missing", node_id, input_id)
+                };
                 inputs.push(Arc::clone(intermediate));
             }
             return inputs;
@@ -525,8 +536,10 @@ impl<Node: 'static, Data: 'static> Graph<Node, Data> where Node: ThreadExecute<D
                             // Next, walk over all the output_ids of this node, decrementing
                             // their input counts.
                             for output_id in output_ids {
-                                let remaining_inputs = remaining_inputs_map.get_mut(output_id).expect(
-                                    &format!("Node {} is not registered in the remaining_inputs_map", output_id));
+                                let remaining_inputs = match remaining_inputs_map.get_mut(output_id) {
+                                    Some(id) => id,
+                                    None => panic!("Node {} is not registered in the remaining_inputs_map", output_id)
+                                };
                                 remaining_inputs.remove(&node_id);
                                 // If any hit 0, execute them.
                                 if remaining_inputs.len() == 0 {

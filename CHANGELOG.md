@@ -1,6 +1,9 @@
 # ParaGraphs - Parallel Graph Execution Library
 **NOTE**: Dates are in YYYY-MM-DD format.
 
+## v0.3.1 (2019-04-27)
+- Performance improvements, by eliminating excessive and unused calls to `format!`.
+
 ## v0.3.0 (2019-04-02)
 - Changes `execute` to use `Vec<Arc<Data>>` because intermediate outputs were not being reference counted correctly.
 - Recipe inputs/outputs are now `HashSet`s to prevent superfluous duplicates.
