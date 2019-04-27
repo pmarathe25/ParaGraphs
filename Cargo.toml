@@ -1,6 +1,6 @@
 [package]
 name = "paragraphs"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Pranav Marathe <pmarathe25@gmail.com>"]
 edition = "2018"
 license = "MIT"
